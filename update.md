@@ -2,7 +2,7 @@
 
 ## Branch
 
-`codex/fullstack-bugfixes-20260807`
+`branch1`
 
 This branch contains review-driven fixes only. The `master` branch was not modified.
 
