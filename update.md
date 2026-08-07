@@ -58,6 +58,19 @@ This branch contains review-driven fixes only. The `master` branch was not modif
 
 - Full Oracle integration and concurrency testing requires the configured Oracle 11g XE database and Instant Client.
 - Add automated regression tests for simultaneous bid awards and invalid route parameters.
-- Implement transport-personnel API/pages and transaction #5 (assign transport).
-- Implement delivery/payment API/pages and transaction #6.
-- Implement administrator API/pages.
+- Complete transaction #6 once payment-provider confirmation rules are resolved.
+
+## Completion update — admin, logistics and setup reliability
+
+- Added an administrator dashboard with totals, account controls, daily prices,
+  complaint handling, and atomic transport assignment.
+- Added a transport-personnel dashboard with route/vehicle details and delivery
+  status transitions. Delivery releases the vehicle and completes the order.
+- Added API root information and schema readiness to `/api/health`.
+- Added `database/00_prepare_schema.sql` for XE's `ORA-01950` tablespace issue.
+- Missing schema (`ORA-00942`) now returns an actionable HTTP 503 instead of an
+  opaque server error.
+- Admin and transport users now have protected functional routes and navigation.
+
+Payment-provider confirmation is still TBD in the PRD, so no automatic money-
+transfer rule was invented. Existing Oracle payment constraints remain active.

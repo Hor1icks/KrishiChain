@@ -27,10 +27,7 @@ const NAV = {
     { label: 'Reviews', ready: false },
   ],
   ADMIN: [
-    { label: 'Dashboard', ready: false },
-    { label: 'Daily Prices', ready: false },
-    { label: 'Manage Users', ready: false },
-    { label: 'Complaints', ready: false },
+    { to: '/admin', label: 'Dashboard', ready: true, end: true },
   ],
   STORAGE_MANAGER: [
     { to: '/storage', label: 'Dashboard', ready: true, end: true },
@@ -39,8 +36,7 @@ const NAV = {
     { label: 'Unit Maintenance', ready: false },
   ],
   TRANSPORT_PERSONNEL: [
-    { label: 'My Assignments', ready: false },
-    { label: 'Delivery Status', ready: false },
+    { to: '/transport', label: 'My Assignments', ready: true, end: true },
   ],
 };
 

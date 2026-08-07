@@ -18,6 +18,8 @@ import MyBids from './pages/buyer/MyBids';
 import StorageDashboard from './pages/storage/StorageDashboard';
 import Warehouses from './pages/storage/Warehouses';
 import Allocations from './pages/storage/Allocations';
+import TransportDashboard from './pages/transport/TransportDashboard';
+import AdminDashboard from './pages/admin/AdminDashboard';
 
 /** Role wrappers, so each role is stated once per route rather than twice. */
 function Farmer({ children }) {
@@ -31,6 +33,8 @@ function Buyer({ children }) {
 function Storage({ children }) {
   return <ProtectedRoute roles={['STORAGE_MANAGER']}>{children}</ProtectedRoute>;
 }
+function Transport({ children }) { return <ProtectedRoute roles={['TRANSPORT_PERSONNEL']}>{children}</ProtectedRoute>; }
+function Admin({ children }) { return <ProtectedRoute roles={['ADMIN']}>{children}</ProtectedRoute>; }
 
 /**
  * Signing in lands users with implemented modules on their role home.
@@ -41,6 +45,8 @@ function RoleHome() {
   if (user?.role === 'FARMER') return <Navigate to="/farmer" replace />;
   if (user?.role === 'BUYER') return <Navigate to="/buyer" replace />;
   if (user?.role === 'STORAGE_MANAGER') return <Navigate to="/storage" replace />;
+  if (user?.role === 'TRANSPORT_PERSONNEL') return <Navigate to="/transport" replace />;
+  if (user?.role === 'ADMIN') return <Navigate to="/admin" replace />;
   return <DashboardPage />;
 }
 
@@ -77,8 +83,8 @@ export default function App() {
             <Route path="/storage" element={<Storage><StorageDashboard /></Storage>} />
             <Route path="/storage/warehouses" element={<Storage><Warehouses /></Storage>} />
             <Route path="/storage/allocations" element={<Storage><Allocations /></Storage>} />
-
-            {/* Still to come: /transport, /admin */}
+            <Route path="/transport" element={<Transport><TransportDashboard /></Transport>} />
+            <Route path="/admin" element={<Admin><AdminDashboard /></Admin>} />
 
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>

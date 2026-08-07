@@ -20,6 +20,14 @@ body {
   background: var(--bg);
 }
 
+.page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.table-wrap { overflow-x: auto; margin-bottom: 1.5rem; }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1rem; }
+.card { border: 1px solid var(--line); border-radius: 10px; padding: 1rem; background: #fff; }
+.empty-state { padding: 2rem; text-align: center; border: 1px dashed var(--line); border-radius: 10px; }
+button.secondary { background: #607067; }
+.inline-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); align-items: end; margin: .75rem 0 1.5rem; padding: 1rem; border: 1px solid var(--line); border-radius: 10px; }
+
 .app {
   min-height: 100vh;
   display: flex;

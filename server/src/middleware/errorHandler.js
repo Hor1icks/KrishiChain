@@ -23,6 +23,11 @@ function errorHandler(err, _req, res, _next) {
   }
 
   const message = err.message || 'Unexpected server error.';
+  if (message.includes('ORA-00942')) {
+    return res.status(503).json({
+      error: 'Database schema is not installed. Run database/01_create_tables.sql through 04_views.sql as the KRISHICHAIN schema.',
+    });
+  }
   const businessRule = message.match(/ORA-2000[12]:\s*(.+?)(?:\n|ORA-|$)/);
   if (businessRule) {
     return res.status(422).json({ error: businessRule[1].trim() });

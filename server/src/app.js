@@ -10,6 +10,8 @@ const referenceRoutes = require('./routes/reference.routes');
 const farmerRoutes = require('./routes/farmer.routes');
 const buyerRoutes = require('./routes/buyer.routes');
 const storageRoutes = require('./routes/storage.routes');
+const transportRoutes = require('./routes/transport.routes');
+const adminRoutes = require('./routes/admin.routes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -17,16 +19,29 @@ const app = express();
 app.use(cors({ origin: clientOrigin }));
 app.use(express.json());
 
+app.get('/', (_req, res) => res.json({
+  name: 'KrishiChain API',
+  status: 'running',
+  health: '/api/health',
+  frontend: clientOrigin,
+}));
+
 app.get('/api/health', async (_req, res, next) => {
   try {
     const result = await query(
       `SELECT USER AS db_user, TO_CHAR(SYSDATE, 'YYYY-MM-DD HH24:MI:SS') AS db_time FROM dual`
+    );
+    const schema = await query(
+      `SELECT COUNT(*) AS table_count FROM user_tables
+        WHERE table_name IN ('USERS','HARVEST_BATCH','SALE_ORDER','TRANSPORT_REQUEST')`
     );
     res.json({
       status: 'ok',
       database: 'connected',
       dbUser: result.rows[0].DB_USER,
       dbTime: result.rows[0].DB_TIME,
+      schemaReady: schema.rows[0].TABLE_COUNT === 4,
+      coreTablesFound: schema.rows[0].TABLE_COUNT,
     });
   } catch (err) {
     next(err);
@@ -38,9 +53,8 @@ app.use('/api/reference', referenceRoutes);
 app.use('/api/farmer', farmerRoutes);
 app.use('/api/buyer', buyerRoutes);
 app.use('/api/storage', storageRoutes);
-
-// Still to come:
-//   /api/transport, /api/admin
+app.use('/api/transport', transportRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

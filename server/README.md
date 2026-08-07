@@ -12,6 +12,11 @@ cp .env.example .env      # then edit .env for your machine
 npm start
 ```
 
+Before starting the API, run `database/00_prepare_schema.sql` as
+SYSTEM/SYSDBA, then run scripts `01` through `04` with
+`CURRENT_SCHEMA = KRISHICHAIN`. This prevents XE's `ORA-01950` default-
+tablespace failure.
+
 Two things in `.env` that will bite you:
 
 - **`ORACLE_CLIENT_DIR`** must point at your unzipped Oracle Instant Client 19c
@@ -52,7 +57,7 @@ src/
 
 ## Transactions implemented (PRD §9.10)
 
-Four of six. Each is one `withTransaction()` call — commits on return, rolls
+Five of six. Each is one `withTransaction()` call — commits on return, rolls
 back on throw — and each was verified by **fault injection**: a temporary
 `CHECK (...) ENABLE NOVALIDATE` constraint armed so a late statement fails, then
 confirming nothing from the earlier statements persisted.
@@ -63,8 +68,10 @@ confirming nothing from the earlier statements persisted.
 | 2 | Storage Allocation | `storage.service.js` | failed proposal/allocation → no partial capacity reservation |
 | 3 | Place Bid | `buyer.service.js` | failed INSERT → standing bid stayed ACTIVE |
 | 4 | Award Winning Bid | `farmer.service.js` | failed `TRANSPORT_REQUEST` → batch unsold |
+| 5 | Assign Transport | `admin.service.js` | request and vehicle locked before assignment |
 
-Not built: Assign Transport (#5), Delivery + Payment (#6).
+Delivery status updates are also built. Payment-provider confirmation remains
+TBD in the PRD, so automatic payment creation is intentionally not invented.
 
 `ENABLE NOVALIDATE` matters for that testing technique — a plain
 `ADD CONSTRAINT` fails with `ORA-02293` because the existing rows violate it.

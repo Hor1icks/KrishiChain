@@ -1,0 +1,17 @@
+'use strict';
+const express=require('express');
+const service=require('../services/admin.service');
+const {authenticate,requireRole}=require('../middleware/authenticate');
+const {positiveIntegerParam}=require('../utils/params');
+const router=express.Router();
+router.use(authenticate,requireRole('ADMIN'));
+router.get('/dashboard',async(_req,res,next)=>{try{res.json(await service.getDashboard());}catch(e){next(e);}});
+router.get('/users',async(_req,res,next)=>{try{res.json(await service.listUsers());}catch(e){next(e);}});
+router.patch('/users/:userId/status',async(req,res,next)=>{try{res.json(await service.setUserStatus(positiveIntegerParam(req,'userId'),req.body.status));}catch(e){next(e);}});
+router.get('/prices',async(_req,res,next)=>{try{res.json(await service.listPrices());}catch(e){next(e);}});
+router.post('/prices',async(req,res,next)=>{try{res.status(201).json(await service.addPrice(req.user.userId,req.body));}catch(e){next(e);}});
+router.get('/complaints',async(_req,res,next)=>{try{res.json(await service.listComplaints());}catch(e){next(e);}});
+router.patch('/complaints/:complaintId',async(req,res,next)=>{try{res.json(await service.resolveComplaint(req.user.userId,positiveIntegerParam(req,'complaintId'),req.body));}catch(e){next(e);}});
+router.get('/logistics',async(_req,res,next)=>{try{res.json(await service.getLogistics());}catch(e){next(e);}});
+router.post('/logistics/assign',async(req,res,next)=>{try{res.status(201).json(await service.assignTransport(req.body));}catch(e){next(e);}});
+module.exports=router;
