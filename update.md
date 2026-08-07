@@ -4,7 +4,59 @@
 
 `branch1`
 
-This branch contains review-driven fixes only. The `master` branch was not modified.
+This branch contains the completed review fixes plus the admin, transport,
+storage-consent, database-bootstrap, and UI integration updates. The `master`
+branch was not modified.
+
+## Latest commits
+
+- `8737de9` — Complete admin and transport workflows.
+- `cca1601` — Fix storage allocation integration and synchronize project context.
+
+## Current role functionality
+
+### Farmer
+
+- Dashboard, farms, harvest-batch creation and batch history.
+- Auction listing, bid review, and atomic winning-bid award.
+- Partial awards leave remaining quantity open for further bidding.
+- Farmer-side storage proposal consent and release workflow.
+
+### Buyer
+
+- Dashboard, active listings, batch details and bid placement.
+- Strict bid floor/highest-bid/available-quantity validation.
+- Bid history and won-order visibility.
+- Buyer-side storage consent endpoints for awarded orders.
+
+### Storage manager
+
+- Capacity dashboard, warehouse management and weak-entity storage units.
+- Storage fee configuration and unit creation with trigger-assigned unit numbers.
+- Leg-1 farmer batch and leg-2 buyer order proposal workflows.
+- Minimum-storage terms, estimated fees, capacity protection and release consent.
+
+### Transport personnel
+
+- Protected assignment dashboard with order, route, vehicle and quantity details.
+- `PICKED_UP`, `IN_TRANSIT`, `DELIVERED`, and `FAILED` status updates.
+- Delivery completion releases the vehicle and completes the sale order atomically.
+
+### Administrator
+
+- Platform totals and user account status management.
+- Daily market-price visibility and price-recording API.
+- Complaint review, resolution and rejection.
+- Atomic pending-request, vehicle and personnel transport assignment.
+
+## Database and API updates
+
+- Added `database/00_prepare_schema.sql` to set `KRISHICHAIN` to the `USERS`
+  tablespace and prevent `ORA-01950`.
+- `/api/health` reports database connectivity, schema readiness and core-table count.
+- API root `/` identifies the service and links to frontend/health endpoints.
+- Missing tables (`ORA-00942`) return an actionable HTTP 503 setup message.
+- Oracle 11g Thick mode, explicit transactions and named constraints are retained.
 
 ## Bugs found and fixed
 
