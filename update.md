@@ -74,3 +74,11 @@ This branch contains review-driven fixes only. The `master` branch was not modif
 
 Payment-provider confirmation is still TBD in the PRD, so no automatic money-
 transfer rule was invented. Existing Oracle payment constraints remain active.
+
+### Storage allocation integration fix
+
+- Fixed the Allocations page calling removed endpoint `/api/storage/awaiting`.
+- It now calls `/api/storage/awaiting/leg1` and submits the required
+  `minimumStorageDays` field used by the manager-to-farmer consent workflow.
+- Updated success messaging to describe a pending proposal and estimated fee,
+  rather than incorrectly claiming an immediate allocation.

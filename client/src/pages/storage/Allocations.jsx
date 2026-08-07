@@ -13,12 +13,12 @@ export default function Allocations() {
 
   // Which batch is being placed, and where.
   const [placing, setPlacing] = useState(null);
-  const [target, setTarget] = useState({ unitKey: '', quantityStored: '' });
+  const [target, setTarget] = useState({ unitKey: '', quantityStored: '', minimumStorageDays: '7' });
 
   const load = useCallback(async () => {
     try {
       const [a, u, al] = await Promise.all([
-        api('/storage/awaiting'),
+        api('/storage/awaiting/leg1'),
         api('/storage/units'),
         api(`/storage/allocations${showCompleted ? '?all=true' : ''}`),
       ]);
@@ -38,7 +38,7 @@ export default function Allocations() {
     setPlacing(batch);
     setNotice('');
     setError('');
-    setTarget({ unitKey: '', quantityStored: String(batch.unstoredQuantity) });
+    setTarget({ unitKey: '', quantityStored: String(batch.unstoredQuantity), minimumStorageDays: '7' });
   }
 
   const selectedUnit = units.find(
@@ -65,13 +65,13 @@ export default function Allocations() {
           warehouseId: selectedUnit.warehouseId,
           unitNo: selectedUnit.unitNo,
           quantityStored: Number(target.quantityStored),
+          minimumStorageDays: Number(target.minimumStorageDays),
         },
       });
       setNotice(
-        `Allocation #${res.allocationId}: ${number(res.quantityStored)} kg of batch ` +
-          `${res.batchId} into unit ${res.unitNo}. Unit now ${number(res.unitLoad)}/` +
-          `${number(res.unitCapacity)} kg, ${number(res.unitFreeSpace)} kg free.` +
-          (res.batchPromotedToStored ? ' Batch marked STORED.' : '')
+        `Proposal #${res.allocationId}: ${number(res.quantityStored)} kg of batch ` +
+          `${res.batchId} into unit ${res.unitNo} for at least ${res.minimumStorageDays} days. ` +
+          `Estimated fee: ৳${number(res.estimatedFee)}. Waiting for farmer approval.`
       );
       setPlacing(null);
       await load();
@@ -198,6 +198,17 @@ export default function Allocations() {
                 min="0.001"
                 value={target.quantityStored}
                 onChange={(e) => setTarget({ ...target, quantityStored: e.target.value })}
+                required
+              />
+            </label>
+            <label>
+              Minimum storage days *
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={target.minimumStorageDays}
+                onChange={(e) => setTarget({ ...target, minimumStorageDays: e.target.value })}
                 required
               />
             </label>

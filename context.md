@@ -367,14 +367,27 @@ allocation row, unit untouched.
 
 ## Phase status
 
+### 2026-08-07 — Admin, transport, and storage integration completion
+
+- Admin now manages account status, complaints, daily-price visibility, and
+  atomic transport assignment.
+- Transport personnel can see assigned routes/vehicles and progress deliveries.
+- Delivery completion releases the vehicle and completes the related sale order.
+- Storage allocation UI now uses the consent-workflow endpoint
+  `/api/storage/awaiting/leg1` and submits the required minimum-storage term.
+- Oracle bootstrap now includes `00_prepare_schema.sql`, preventing `ORA-01950`
+  when the application user accidentally defaults to the SYSTEM tablespace.
+- Payment-provider confirmation remains TBD; no external transfer rule is
+  invented by the implementation.
+
 | Phase | Deliverable | Status |
 |---|---|---|
 | 1 (Day 0-1) | Environment proof + ER diagram | **Done** (user-drawn, per `Phase1/ER_BLUEPRINT.md`) |
 | 2 (Day 2) | `01_create_tables.sql` + `02_sequences_triggers.sql` | **Done and verified** — executed clean against live XE 11.2 |
 | 3 (Day 3) | `03_insert_data.sql` + React/auth scaffold | **Done and verified** — seed data + `server/` and `client/` running end to end |
 | 4 (Day 4) | `04_views.sql`, `05_advanced_queries.sql`, Express wiring, farmer pages | **Done and verified** — views, 5 queries, farmer module server + client |
-| 5 (Day 5) | Buyer, storage, transport pages | **Buyer + storage done and verified**; transport not started |
-| 6 (Day 6) | Admin pages, navigation wiring, narration script | Not started |
+| 5 (Day 5) | Buyer, storage, transport pages | **Done** — all three role modules implemented |
+| 6 (Day 6) | Admin pages, navigation wiring, narration script | **Admin and navigation done**; narration remains |
 | 7 (Day 7) | Full dry run, screenshots, submission pack | Not started |
 
 **Phase 2 output, verified against the live `krishichain` schema on 2026-08-05:**
