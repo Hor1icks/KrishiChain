@@ -293,7 +293,7 @@ Draw each as a single diamond with two lines back to the same entity box, with r
 
 ## 9. Relational Schema (Oracle 11g)
 
-**24 core tables + 2 optional (P2).** ✚ = composite key.
+**25 core tables + 2 optional (P2).** `STORAGE_PAYMENT` was added with the consent-based storage workflow. ✚ = composite key.
 
 ### 9.1 Identity and specialization
 
@@ -726,7 +726,7 @@ krishichain/
 
 - [ ] Finalized ER diagram showing: specialization (disjoint, total), aggregation over the bidding relationship, two ternary relationships, two weak entities, two recursive relationships, plus composite / multivalued / derived attributes
 - [ ] Schema diagram matching the ER exactly
-- [ ] All 24 core tables (+2 optional) created with named constraints; script runs clean on an empty schema
+- [x] All 25 core tables (+2 optional) created with named constraints; script runs clean on an empty schema
 - [ ] 5 consistent demo rows per table
 - [ ] 5 advanced queries returning non-empty, explainable results
 - [ ] 15 front-end pages reachable through role-based navigation

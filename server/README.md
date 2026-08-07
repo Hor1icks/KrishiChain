@@ -52,7 +52,7 @@ src/
 
 ## Transactions implemented (PRD §9.10)
 
-Three of six. Each is one `withTransaction()` call — commits on return, rolls
+Four of six. Each is one `withTransaction()` call — commits on return, rolls
 back on throw — and each was verified by **fault injection**: a temporary
 `CHECK (...) ENABLE NOVALIDATE` constraint armed so a late statement fails, then
 confirming nothing from the earlier statements persisted.
@@ -60,10 +60,11 @@ confirming nothing from the earlier statements persisted.
 | # | Transaction | Where | Rollback proven by |
 |---|---|---|---|
 | 1 | Registration | `auth.service.js` | duplicate NID → no orphan `USERS` row |
+| 2 | Storage Allocation | `storage.service.js` | failed proposal/allocation → no partial capacity reservation |
 | 3 | Place Bid | `buyer.service.js` | failed INSERT → standing bid stayed ACTIVE |
 | 4 | Award Winning Bid | `farmer.service.js` | failed `TRANSPORT_REQUEST` → batch unsold |
 
-Not built: Storage allocation (#2), Assign Transport (#5), Delivery + Payment (#6).
+Not built: Assign Transport (#5), Delivery + Payment (#6).
 
 `ENABLE NOVALIDATE` matters for that testing technique — a plain
 `ADD CONSTRAINT` fails with `ORA-02293` because the existing rows violate it.

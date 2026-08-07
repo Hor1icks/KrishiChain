@@ -90,7 +90,7 @@ first — it must point at the unzipped Instant Client 19c directory, not a OneD
 - Never develop as `SYS`/`SYSTEM` — use the dedicated `krishichain` app user created by
   `00_environment_check.sql` (`CONNECT, RESOURCE` + `CREATE VIEW/SEQUENCE/TRIGGER/PROCEDURE`).
 
-**Data model shape** (PRD §7/§9, `Phase1/ER_BLUEPRINT.md`): 26 tables (24 core + 2 P2) built
+**Data model shape** (PRD §7/§9, `Phase1/ER_BLUEPRINT.md`): 27 tables (25 core + 2 P2) built
 around five graded ER constructs that any schema or query work must preserve:
 
 1. **Total, disjoint specialization** — `USERS` → `FARMER`/`BUYER`/`ADMIN_STAFF`/

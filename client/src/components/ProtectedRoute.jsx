@@ -1,5 +1,5 @@
 import { Navigate } from 'react-router';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/auth';
 
 /**
  * Route guard. `roles` restricts a route to specific roles — the

@@ -20,14 +20,27 @@ export async function api(path, { method = 'GET', body, auth = true } = {}) {
   const token = tokenStore.get();
   if (auth && token) headers.Authorization = `Bearer ${token}`;
 
-  const response = await fetch(`/api${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response;
+  try {
+    response = await fetch(`/api${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error('Cannot reach the KrishiChain server. Check that the API is running.');
+  }
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // A proxy or infrastructure error may be HTML/plain text. Preserve the
+      // useful HTTP status instead of replacing it with a JSON.parse error.
+    }
+  }
 
   if (!response.ok) {
     throw new Error(data?.error || `Request failed (${response.status})`);

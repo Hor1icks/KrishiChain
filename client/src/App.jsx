@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
+import { useAuth } from './context/auth';
 import ProtectedRoute from './components/ProtectedRoute';
 import NavBar from './components/NavBar';
 import LoginPage from './pages/LoginPage';
@@ -32,9 +33,8 @@ function Storage({ children }) {
 }
 
 /**
- * Signing in lands you on your role's home. Only FARMER has a real module
- * in Update-1; every other role falls through to the placeholder
- * dashboard, which lists what their module will contain.
+ * Signing in lands users with implemented modules on their role home.
+ * Transport and admin currently fall through to the phase placeholder.
  */
 function RoleHome() {
   const { user } = useAuth();

@@ -1,4 +1,4 @@
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/auth';
 
 /**
  * Placeholder landing page. Phases 4-6 replace the "coming next" list

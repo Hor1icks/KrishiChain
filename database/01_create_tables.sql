@@ -1,6 +1,6 @@
 -- =====================================================================
 -- KrishiChain | 01_create_tables.sql
--- Phase 2, Day 2 — 26 tables (24 core + 2 P2), matching the approved
+-- Phase 2 plus storage workflow — 27 tables (25 core + 2 P2), matching the approved
 -- ER diagram (Phase1/ER_BLUEPRINT.md) and PRD v3 sections 7-9.
 --
 -- Run as the `krishichain` application user (never SYS/SYSTEM).

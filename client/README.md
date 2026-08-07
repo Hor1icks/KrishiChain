@@ -23,9 +23,11 @@ one origin and there is no CORS preflight in development.
 | `/dashboard` | any signed-in user — redirects to the role's home |
 | `/farmer`, `/farmer/farms`, `/farmer/batches`, `/farmer/batches/new`, `/farmer/batches/:id` | FARMER |
 | `/buyer`, `/buyer/browse`, `/buyer/bids`, `/buyer/batches/:id` | BUYER |
+| `/storage`, `/storage/warehouses`, `/storage/allocations` | STORAGE_MANAGER |
 
-Storage, transport and admin are not built — they appear in the navbar greyed
-out with a "Phase 2" tag, per PRD §11.3, so the full site map stays visible.
+Transport and admin are not built. Their navigation appears greyed out with a
+"Phase 2" tag, per PRD §11.3, so the full site map stays visible. Storage is
+implemented with dashboard, warehouse/unit and allocation pages.
 
 ## Trying the demo loop
 

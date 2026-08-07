@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
-import { useAuth } from '../context/AuthContext';
+import { Link, useLocation, useNavigate } from 'react-router';
+import { useAuth } from '../context/auth';
 
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,6 +30,12 @@ export default function LoginPage() {
     <div className="auth-card">
       <h1>Sign in</h1>
       <p className="muted">KrishiChain — Farm to Buyer</p>
+
+      {location.state?.justRegistered && (
+        <p className="success" role="status">
+          Registration completed. Sign in with your new account.
+        </p>
+      )}
 
       <form onSubmit={handleSubmit}>
         <label>

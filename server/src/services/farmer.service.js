@@ -375,7 +375,8 @@ async function awardBid(farmerId, bidId, payload = {}) {
   }
 
   return withTransaction(async (connection) => {
-    // --- Load the bid, its batch, and prove ownership in one hop ------
+    // Load and lock the bid and batch in one authoritative read. Reading
+    // first and locking later allowed a waiting request to use stale state.
     const bidResult = await connection.execute(
       `SELECT b.BidID, b.BatchID, b.BuyerID, b.BidPricePerKg, b.RequestedQuantity,
               b.Status AS BidStatus,
@@ -384,7 +385,8 @@ async function awardBid(farmerId, bidId, payload = {}) {
          FROM BID b
          JOIN HARVEST_BATCH hb ON hb.BatchID = b.BatchID
          JOIN FARM f           ON f.FarmID   = hb.FarmID
-        WHERE b.BidID = :bidId`,
+        WHERE b.BidID = :bidId
+          FOR UPDATE OF b.Status, hb.Status`,
       { bidId }
     );
 
@@ -394,12 +396,6 @@ async function awardBid(farmerId, bidId, payload = {}) {
     if (bid.FARMERID !== farmerId) {
       throw ApiError.notFound('No such bid.');
     }
-
-    // --- Lock the batch so a concurrent award cannot interleave ------
-    await connection.execute(
-      `SELECT BatchID FROM HARVEST_BATCH WHERE BatchID = :batchId FOR UPDATE`,
-      { batchId: bid.BATCHID }
-    );
 
     // --- Guards -----------------------------------------------------
     if (bid.BIDSTATUS !== 'ACTIVE') {

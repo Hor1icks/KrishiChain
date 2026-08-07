@@ -3,6 +3,7 @@
 const express = require('express');
 const farmer = require('../services/farmer.service');
 const { authenticate, requireRole } = require('../middleware/authenticate');
+const { positiveIntegerParam } = require('../utils/params');
 
 const router = express.Router();
 
@@ -56,7 +57,7 @@ router.post('/batches', async (req, res, next) => {
 
 router.get('/batches/:batchId', async (req, res, next) => {
   try {
-    res.json(await farmer.getBatch(me(req), Number(req.params.batchId)));
+    res.json(await farmer.getBatch(me(req), positiveIntegerParam(req, 'batchId')));
   } catch (err) {
     next(err);
   }
@@ -64,7 +65,7 @@ router.get('/batches/:batchId', async (req, res, next) => {
 
 router.get('/batches/:batchId/bids', async (req, res, next) => {
   try {
-    res.json(await farmer.listBidsForBatch(me(req), Number(req.params.batchId)));
+    res.json(await farmer.listBidsForBatch(me(req), positiveIntegerParam(req, 'batchId')));
   } catch (err) {
     next(err);
   }
@@ -73,7 +74,7 @@ router.get('/batches/:batchId/bids', async (req, res, next) => {
 // The demo centrepiece — PRD §9.10 transaction #4.
 router.post('/bids/:bidId/award', async (req, res, next) => {
   try {
-    res.status(201).json(await farmer.awardBid(me(req), Number(req.params.bidId), req.body));
+    res.status(201).json(await farmer.awardBid(me(req), positiveIntegerParam(req, 'bidId'), req.body));
   } catch (err) {
     next(err);
   }
@@ -96,7 +97,7 @@ router.post('/storage/proposals/:allocationId/respond', async (req, res, next) =
     res.json(
       await farmer.respondToStorageProposal(
         me(req),
-        Number(req.params.allocationId),
+        positiveIntegerParam(req, 'allocationId'),
         req.body.decision
       )
     );
@@ -107,7 +108,7 @@ router.post('/storage/proposals/:allocationId/respond', async (req, res, next) =
 
 router.post('/storage/:allocationId/release', async (req, res, next) => {
   try {
-    res.json(await farmer.requestStorageRelease(me(req), Number(req.params.allocationId)));
+    res.json(await farmer.requestStorageRelease(me(req), positiveIntegerParam(req, 'allocationId')));
   } catch (err) {
     next(err);
   }
@@ -118,7 +119,7 @@ router.post('/storage/:allocationId/release/respond', async (req, res, next) => 
     res.json(
       await farmer.respondToStorageRelease(
         me(req),
-        Number(req.params.allocationId),
+        positiveIntegerParam(req, 'allocationId'),
         req.body.decision
       )
     );
@@ -137,7 +138,9 @@ router.get('/storage/fees', async (req, res, next) => {
 
 router.post('/storage/:allocationId/pay', async (req, res, next) => {
   try {
-    res.status(201).json(await farmer.payStorageFee(me(req), Number(req.params.allocationId), req.body));
+    res.status(201).json(
+      await farmer.payStorageFee(me(req), positiveIntegerParam(req, 'allocationId'), req.body)
+    );
   } catch (err) {
     next(err);
   }
