@@ -315,7 +315,7 @@ async function scheduleBatch(farmerId, batchId, payload) {
 
   return withTransaction(async (connection) => {
     const current = await connection.execute(
-      `SELECT hb.BatchID, hb.Status
+      `SELECT hb.BatchID, hb.Status, hb.BiddingStartTime, hb.BiddingEndTime
          FROM HARVEST_BATCH hb
          JOIN FARM f ON f.FarmID = hb.FarmID
         WHERE hb.BatchID = :batchId AND f.FarmerID = :farmerId
@@ -324,7 +324,9 @@ async function scheduleBatch(farmerId, batchId, payload) {
     );
 
     if (!current.rows.length) throw ApiError.notFound('No such batch.');
-    if (current.rows[0].STATUS !== 'CREATED') {
+    const batch = current.rows[0];
+    if (!['CREATED', 'STORED'].includes(batch.STATUS) ||
+        batch.BIDDINGSTARTTIME || batch.BIDDINGENDTIME) {
       throw ApiError.businessRule(
         `Only a draft batch can be scheduled. This batch is ${current.rows[0].STATUS}.`
       );

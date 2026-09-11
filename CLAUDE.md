@@ -21,20 +21,20 @@ improved as long as current workflows remain compatible.
 sequence, trigger and indexing topics from the CSE-302 work plan. Read `UPDATE2.md` for the
 earlier technique map and `UPDATE3.md` for the new schema-automation map.
 
-**Current state:** all 28 application pages, eight views, three PL/SQL packages, one object type,
+**Current state:** 29 application page components, eight views, three PL/SQL packages, one object type,
 18 sequences, 9 varied triggers, 31 application indexes, and SSLCommerz card payment.
 `Phase1/` contains the environment proof, `database/` contains the schema and demonstrations,
 `server/` is the Express API, and `client/` is the React + Vite application. **Still
-outstanding:** the narration script and final presentation dry run.
+outstanding:** a human-hosted sandbox payment/return and final team presentation rehearsal.
+`docs/PRESENTATION.md` contains the narration and demonstration checklist.
 
-All six PRD §9.10 transactions are implemented and fault-injection verified: Registration, Storage
+All six PRD §9.10 transactions are implemented: Registration, Storage
 Allocation, Place Bid, Award Winning Bid, Assign Transport, Delivery+Payment.
 
-**Every transaction was verified by fault injection**, and new ones should be too: arm a temporary
-`ALTER TABLE ... ADD CONSTRAINT ... CHECK (...) ENABLE NOVALIDATE` so a *late* statement fails,
-call the endpoint, confirm the earlier statements left nothing behind, then drop it.
-`ENABLE NOVALIDATE` is required — a plain `ADD CONSTRAINT` fails with `ORA-02293` against existing
-rows.
+`server/test/workflows.js` exercises these workflows using uncommitted Oracle fixtures.
+It checks registration rollback with a duplicate phone and award rollback with an injected
+late execution failure. Do not add temporary constraints for testing: the schema is frozen.
+The harness replaces service commits with savepoints, then rolls the entire run back.
 
 ## Update-3 database automation
 
@@ -55,10 +55,13 @@ invalid objects. `database/11_trigger_demo.sql` tests the trigger layer and roll
 
 **SSLCommerz card payment** (`server/src/services/sslcommerz.service.js`) reserves the amount as a
 `PENDING` payment *before* opening the checkout session, so BR-19 counts the attempt and a balance
-cannot be paid twice; cancel, decline or a failed validation marks it `FAILED` and frees it. The
+cannot be paid twice; cancellation, decline or session-open failure marks it `FAILED` and frees it. The
 gateway redirects the browser back with a form POST, so **that body is attacker-controlled and is
 never trusted** — settlement is confirmed by calling the gateway's validation API and comparing
-the amount. Don't "simplify" that away. Their server-to-server IPN cannot reach localhost, which
+transaction ID, BDT currency and amount. Failed validation leaves the reservation pending for
+retry; do not assume the customer was not charged. Only COMPLETED payments authorize storage
+release or order completion, and an order also requires delivery. Don't "simplify" that away.
+Their server-to-server IPN cannot reach localhost, which
 is why confirmation happens on the redirect. Blank `SSLCZ_STORE_ID` hides the feature entirely.
 
 ## Commands
@@ -72,9 +75,10 @@ cd client && npm run build                                      # production com
 cd client && npm run lint                                       # Oxlint static checks
 ```
 
-There is no automated test suite. Verify SQL changes on an empty disposable
-schema and smoke-test affected API workflows; never point destructive test
-scripts at the live application schema.
+Run `npm run check:db`, `npm run test:workflows`, or `npm run test:browser` from `server/`.
+Browser checks require a built client and Google Chrome (or `CHROME_PATH`). See
+`docs/TESTING.md` for prerequisites, rollback safety and the distinction between mocked
+gateway tests and real sandbox connectivity. Never run reset/seed scripts against live data.
 
 `server/.env` gotcha: **quote the password if it contains a `#`.** Unquoted, `#` starts a comment
 in a `.env` file, so e.g. `DB_PASSWORD=Example#2026` parses as `Example` and yields `ORA-01017`.

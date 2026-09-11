@@ -10,6 +10,7 @@ export default function CreateBatch() {
   const [form, setForm] = useState({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([api('/farmer/farms'), api('/reference/crops'), api('/reference/arats')])
@@ -18,7 +19,8 @@ export default function CreateBatch() {
         setCrops(c);
         setArats(a);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
   }, []);
 
   const set = (name) => (e) => setForm({ ...form, [name]: e.target.value });
@@ -63,7 +65,7 @@ export default function CreateBatch() {
     }
   }
 
-  if (farms.length === 0 && !error) {
+  if (loading) {
     return (
       <div className="page">
         <h1>New Harvest Batch</h1>

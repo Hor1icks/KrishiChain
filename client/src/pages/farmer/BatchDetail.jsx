@@ -137,7 +137,7 @@ export default function BatchDetail() {
         {batch.biddingEndTime && ` · closes ${dateTime(batch.biddingEndTime)}`}
       </p>
 
-      {batch.status === 'CREATED' && (
+      {['CREATED', 'STORED'].includes(batch.status) && !batch.biddingStartTime && !batch.biddingEndTime && (
         <section className="boxed">
           <h2>Complete draft and schedule bidding</h2>
           <p className="muted">

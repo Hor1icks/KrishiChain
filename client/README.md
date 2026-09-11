@@ -1,6 +1,6 @@
 # KrishiChain Client
 
-React + Vite front end for all five KrishiChain roles. The application has 28
+React + Vite front end for all five KrishiChain roles. The application has 29
 page components, role-aware navigation, loading/empty/error states, and forms
 for the six main database workflows.
 
@@ -27,7 +27,7 @@ to that server during development.
 | Buyer | Dashboard, listings, batch detail, bids, orders, payments, storage, reviews |
 | Storage manager | Dashboard, warehouses/units, requests and allocations |
 | Transport personnel | Assignment dashboard, pickup and delivery actions |
-| Admin | Dashboard, users, prices, complaints and PL/SQL-backed reports |
+| Admin | Dashboard, users, prices, complaints, farm verification and PL/SQL-backed reports |
 
 `ProtectedRoute` improves navigation but is not the security boundary; the API
 authenticates and authorizes every protected request.
@@ -48,3 +48,7 @@ All seeded accounts use `Demo@1234`. The registration form is role-driven:
 attribute and are submitted with the user in one registration transaction.
 
 Import router APIs from `react-router`; this project uses React Router 8.
+
+Browser regression checks run from `server/` with `npm run test:browser` after
+`npm run build` here. They use the built client, a temporary API port and rolled-back
+Oracle records; they do not operate on an existing user's account. See `../docs/TESTING.md`.

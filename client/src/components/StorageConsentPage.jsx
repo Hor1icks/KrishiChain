@@ -2,16 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { api } from '../api/client';
 import { date, number, taka } from '../utils/format';
-
-const GATEWAY_MESSAGE = {
-  cancelled: 'You cancelled the payment, so nothing was charged.',
-  declined: 'The payment was declined. Nothing was charged.',
-  'amount-mismatch':
-    'The amount the gateway reported did not match the fee, so the payment was rejected.',
-  'not-validated': 'The gateway could not confirm that payment. Nothing was charged.',
-  error: 'Something went wrong settling that payment. Nothing was charged.',
-  expired: 'That checkout had already expired. Start a new one.',
-};
+import { paymentMessages as GATEWAY_MESSAGE } from '../utils/paymentMessages';
 
 export default function StorageConsentPage({ base, title, intro, legNote }) {
   const [proposals, setProposals] = useState(null);

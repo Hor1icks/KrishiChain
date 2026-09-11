@@ -372,6 +372,18 @@ async function completeStorageInbound(connection, trip, transportId) {
         WHERE BatchID = :batchId AND Status = 'CREATED'`,
       { batchId: row.BATCHID }
     );
+  } else {
+    // A buyer may choose warehouse arrival as the order's delivery endpoint.
+    // Advance payment alone must not complete it before that arrival.
+    await connection.execute(
+      `UPDATE SALE_ORDER so SET Status = 'COMPLETED'
+        WHERE so.SaleOrderID = :saleOrderId AND so.Status <> 'CANCELLED'
+          AND so.TotalAmount <= (
+            SELECT NVL(SUM(p.Amount), 0) FROM PAYMENT p
+             WHERE p.SaleOrderID = so.SaleOrderID AND p.PaymentType = 'SALE'
+               AND p.PaymentStatus = 'COMPLETED')`,
+      { saleOrderId: row.SALEORDERID }
+    );
   }
 
   if (row.UNITSTATUS !== 'MAINTENANCE') {
@@ -429,21 +441,23 @@ async function complete(personnelId, transportId, payload = {}) {
     }
 
     const paidResult = await connection.execute(
-      `SELECT NVL(SUM(Amount), 0) AS Paid FROM PAYMENT
-        WHERE SaleOrderID = :saleOrderId AND PaymentStatus IN ('PENDING','COMPLETED')`,
+      `SELECT NVL(SUM(CASE WHEN PaymentStatus = 'COMPLETED' THEN Amount ELSE 0 END), 0) AS Paid,
+              NVL(SUM(CASE WHEN PaymentStatus = 'PENDING' THEN Amount ELSE 0 END), 0) AS Reserved
+         FROM PAYMENT WHERE SaleOrderID = :saleOrderId AND PaymentType = 'SALE'`,
       { saleOrderId: trip.SALEORDERID }
     );
     const alreadyPaid = paidResult.rows[0].PAID;
     const outstanding = Number((trip.TOTALAMOUNT - alreadyPaid).toFixed(2));
+    const cashDue = Number((outstanding - paidResult.rows[0].RESERVED).toFixed(2));
 
     let payment = null;
-    if (outstanding > 0 && trip.PAYMENTTERMS === 'ON_DELIVERY') {
+    if (cashDue > 0 && trip.PAYMENTTERMS === 'ON_DELIVERY') {
       const method = payload.paymentMethod || 'CASH';
       const reference = `COD-${Date.now()}-${trip.SALEORDERID}`;
 
       await connection.execute(
         `BEGIN pkg_krishi_rules.check_payment_allowed(:saleOrderId, :amount); END;`,
-        { saleOrderId: trip.SALEORDERID, amount: outstanding }
+        { saleOrderId: trip.SALEORDERID, amount: cashDue }
       );
 
       const inserted = await connection.execute(
@@ -456,7 +470,7 @@ async function complete(personnelId, transportId, payload = {}) {
           saleOrderId: trip.SALEORDERID,
           buyerId: trip.BUYERID,
           farmerId: trip.FARMERID,
-          amount: outstanding,
+          amount: cashDue,
           method,
           reference,
           paymentId: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
@@ -464,13 +478,14 @@ async function complete(personnelId, transportId, payload = {}) {
       );
       payment = {
         paymentId: inserted.outBinds.paymentId[0],
-        amount: outstanding,
+        amount: cashDue,
         method,
         reference,
       };
     }
 
-    const settled = payment !== null || outstanding <= 0;
+    const remaining = Number((outstanding - (payment?.amount || 0)).toFixed(2));
+    const settled = remaining <= 0;
     if (settled) {
       await connection.execute(
         `UPDATE SALE_ORDER SET Status = 'COMPLETED' WHERE SaleOrderID = :saleOrderId`,
@@ -489,7 +504,7 @@ async function complete(personnelId, transportId, payload = {}) {
       totalAmount: trip.TOTALAMOUNT,
       alreadyPaid,
       payment,
-      outstanding: settled ? 0 : outstanding,
+      outstanding: Math.max(0, remaining),
     };
   });
 }

@@ -20,6 +20,7 @@ async function post(path, fields) {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form(fields),
+    signal: AbortSignal.timeout(15000),
   });
   if (!response.ok) {
     throw ApiError.badGateway(`The payment gateway returned ${response.status}.`);
@@ -44,8 +45,8 @@ function amountToCharge(requested, outstanding, noun) {
   if (requested === undefined || requested === null || requested === '') return outstanding;
 
   const amount = Number(requested);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw ApiError.badRequest('Enter an amount greater than zero.');
+  if (!Number.isFinite(amount) || Number(amount.toFixed(2)) <= 0) {
+    throw ApiError.badRequest('Enter an amount of at least 0.01.');
   }
   if (Number(amount.toFixed(2)) > Number(outstanding.toFixed(2))) {
     throw ApiError.businessRule(
@@ -235,7 +236,8 @@ async function completeCheckout(body) {
 
   let validation = null;
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(`Gateway HTTP ${response.status}`);
     const text = await response.text();
     validation = text.trim() ? JSON.parse(text) : null;
     if (!validation) {
@@ -246,8 +248,16 @@ async function completeCheckout(body) {
   }
 
   if (!validation || !['VALID', 'VALIDATED'].includes(validation.status)) {
-    await markFailed(tranId);
     return { settled: false, ...targetFromRef(tranId), reason: 'not-validated' };
+  }
+
+  // Match the gateway's verified record, not just the browser's callback fields.
+  // Leave the reservation intact on validation failure so a genuine callback can retry.
+  if (validation.tran_id !== tranId) {
+    return { settled: false, ...targetFromRef(tranId), reason: 'transaction-mismatch' };
+  }
+  if (validation.currency !== 'BDT' || validation.currency_type !== 'BDT') {
+    return { settled: false, ...targetFromRef(tranId), reason: 'currency-mismatch' };
   }
 
   return withTransaction(async (connection) => {
@@ -271,11 +281,8 @@ async function completeCheckout(body) {
       return { settled: false, ...where, reason: 'expired' };
     }
 
-    if (Number(validation.amount) !== Number(payment.AMOUNT)) {
-      await connection.execute(
-        `UPDATE PAYMENT SET PaymentStatus = 'FAILED' WHERE PaymentID = :id`,
-        { id: payment.PAYMENTID }
-      );
+    if (Number(validation.amount) !== Number(payment.AMOUNT) ||
+        Number(validation.currency_amount) !== Number(payment.AMOUNT)) {
       return { settled: false, ...where, reason: 'amount-mismatch' };
     }
 
@@ -290,7 +297,7 @@ async function completeCheckout(body) {
                 NVL((SELECT SUM(p.Amount) FROM PAYMENT p
                       WHERE p.SaleOrderID = so.SaleOrderID
                         AND p.PaymentType = 'SALE'
-                        AND p.PaymentStatus IN ('PENDING','COMPLETED')), 0) AS Paid
+                        AND p.PaymentStatus = 'COMPLETED'), 0) AS Paid
            FROM SALE_ORDER so
           WHERE so.SaleOrderID = :saleOrderId`,
         { saleOrderId: payment.SALEORDERID }
@@ -299,7 +306,10 @@ async function completeCheckout(body) {
       if (Number(row.PAID) >= Number(row.TOTALAMOUNT)) {
         await connection.execute(
           `UPDATE SALE_ORDER SET Status = 'COMPLETED'
-            WHERE SaleOrderID = :saleOrderId AND Status <> 'CANCELLED'`,
+            WHERE SaleOrderID = :saleOrderId AND Status <> 'CANCELLED'
+              AND EXISTS (SELECT 1 FROM TRANSPORT_REQUEST tr
+                           WHERE tr.SaleOrderID = :saleOrderId
+                             AND tr.DeliveryStatus = 'DELIVERED')`,
           { saleOrderId: payment.SALEORDERID }
         );
       }

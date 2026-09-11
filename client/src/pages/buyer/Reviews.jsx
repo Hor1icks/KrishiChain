@@ -54,12 +54,12 @@ export default function Reviews() {
   if (error && !reviews) return <p className="error">{error}</p>;
   if (!reviews) return <p className="muted">Loading…</p>;
 
-  const awaiting = orders.filter((o) => !o.reviewId && o.deliveryStatus === 'DELIVERED');
+  const awaiting = orders.filter((o) => !o.reviewId && o.status === 'COMPLETED');
 
   return (
     <div className="page">
       <h1>Reviews</h1>
-      <p className="muted">Rate a farmer once their delivery has arrived.</p>
+      <p className="muted">Rate a farmer once the order is delivered and fully paid.</p>
 
       {error && <p className="error">{error}</p>}
       {notice && <p className="success">{notice}</p>}

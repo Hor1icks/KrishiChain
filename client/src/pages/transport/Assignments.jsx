@@ -92,8 +92,8 @@ export default function Assignments() {
           : res.payment
           ? `Delivered. ${taka(res.payment.amount)} collected on delivery and recorded ` +
             `against order #${res.saleOrderId} (ref ${res.payment.reference}). Order is ${res.orderStatus}.`
-          : `Delivered. Order #${res.saleOrderId} was paid in advance, so no money changed ` +
-            `hands here. Order is ${res.orderStatus}.`
+          : `Delivered. No cash was collected for order #${res.saleOrderId}. ` +
+            `Order is ${res.orderStatus}; unpaid balance: ${taka(res.outstanding)}.`
       );
       setDelivering(null);
       await load();
@@ -335,16 +335,16 @@ export default function Assignments() {
             </>
           ) : (
             <p className="muted">
-              This order was paid in advance, so nothing is collected here. Marking it delivered
-              closes the trip and completes the order.
+              No cash is collected here. Delivery closes the trip; the order completes only
+              when its payments are confirmed. An open checkout is not a confirmed payment.
             </p>
           )}
 
           <p className="note">
             {delivering.requestType === 'STORAGE_INBOUND'
               ? 'Marks the trip delivered, activates storage, and hands the vehicles back.'
-              : <>Marks the trip delivered, completes the sale order
-                {collectsCash && ', records the payment'} and hands the vehicles back, all at once or not at all.</>}
+              : <>Marks the trip delivered{collectsCash && ', records the cash payment'},
+                returns the vehicles, and completes the order only if fully paid, all in one transaction.</>}
           </p>
 
           <div className="actions">

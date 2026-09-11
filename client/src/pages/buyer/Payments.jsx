@@ -2,16 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { api } from '../../api/client';
 import { date, taka } from '../../utils/format';
-
-const RETURN_MESSAGE = {
-  cancelled: 'You cancelled the card payment, so nothing was charged.',
-  declined: 'The card payment was declined. Nothing was charged.',
-  'amount-mismatch':
-    'The amount the gateway reported did not match the order, so the payment was rejected.',
-  'not-validated': 'The gateway could not confirm that payment. Nothing was charged.',
-  error: 'Something went wrong settling that payment. Nothing was charged.',
-  expired: 'That checkout had already expired. Start a new one.',
-};
+import { paymentMessages } from '../../utils/paymentMessages';
 
 export default function Payments() {
   const [payments, setPayments] = useState(null);
@@ -26,7 +17,8 @@ export default function Payments() {
   if (error) return <p className="error">{error}</p>;
   if (!payments) return <p className="muted">Loading…</p>;
 
-  const total = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const total = payments.filter(p => p.paymentStatus === 'COMPLETED')
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
 
   return (
     <div className="page">
@@ -37,7 +29,7 @@ export default function Payments() {
         <p className={outcome === 'paid' ? 'success' : 'error'}>
           {outcome === 'paid'
             ? `Card payment for order #${params.get('order')} went through.`
-            : RETURN_MESSAGE[params.get('reason')] ||
+            : paymentMessages[params.get('reason')] ||
               `Card payment for order #${params.get('order')} did not go through.`}{' '}
           <button type="button" className="ghost small" onClick={() => setParams({})}>
             Dismiss

@@ -272,7 +272,9 @@ farmer or a buyer; both role routes use the same server-side validation flow.
 The card flow reserves the amount as a `PENDING` payment before opening the
 session, so the balance cannot be paid twice, and confirms settlement by
 calling the gateway's validation API rather than trusting the redirect it
-receives. Keep `SSLCZ_STORE_ID` and `SSLCZ_STORE_PASSWORD` populated in
+receives. Transaction ID, BDT currency and amount must all match. Pending
+checkouts reserve the balance but do not authorize storage release or order
+completion; order completion also requires delivery. Keep `SSLCZ_STORE_ID` and `SSLCZ_STORE_PASSWORD` populated in
 `server/.env`; intentionally leaving either blank disables online checkout.
 
 ---
@@ -287,13 +289,19 @@ docker-compose.yml  the same, as one command, if you have the compose plugin
 docker/            docker/bootstrap.sql — the init script Dockerfile installs
 database/          schema, seed data, views, the PL/SQL layer
 server/            Express API
-client/            React front end, 28 pages across five role modules
+client/            React front end, 29 pages across five role modules
 Phase1/            one-time environment setup and connectivity checks
 ```
 
 `UPDATE2.md` maps the earlier SQL and PL/SQL techniques to the application.
 `UPDATE3.md` maps the Week-11 sequences, varied triggers and indexes. Start with
 those two files if you are reviewing this build.
+
+For repeatable verification, see [Testing](docs/TESTING.md). From `server/`,
+`npm run check:db` is read-only and `npm run test:workflows` tests real Oracle
+queries with rolled-back fixtures and a mocked gateway. `npm run test:browser`
+also checks the built client in Chrome. [Presentation notes](docs/PRESENTATION.md)
+provide the screen-by-screen narration and final demo checklist.
 
 ---
 

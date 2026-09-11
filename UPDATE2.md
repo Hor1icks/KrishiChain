@@ -17,7 +17,7 @@ the password `Demo@1234`.
 | 2 | Subquery | Correlated subqueries in views, dashboards and reports | Listings, dashboards and reports |
 | 3 | View | 8 views | Profile, listings, bidding, earnings, orders, storage and admin dashboard |
 | 4 | Abstract datatype | `t_address` object with `full_text()` / `short_text()` | Profile page |
-| 5 | PL/SQL | 3 packages, 7 procedures, 5 functions | Admin → Reports |
+| 5 | PL/SQL | 3 packages; 9 packaged + 1 standalone procedures; 6 packaged functions (plus 2 object methods) | Rules, dashboards and Admin → Reports |
 | 6 | Cursor | `SYS_REFCURSOR` from all 6 report procedures | Admin → Reports |
 | 7 | Exception handling | `ORA-20001` … `ORA-20004` | Bid below the minimum; pay before delivery |
 
@@ -53,7 +53,7 @@ type, executed in the database.
 
 **5. PL/SQL and 6. Cursor.** Admin → Reports. Each of the six reports calls
 a procedure in `pkg_krishi_reports` that opens a `SYS_REFCURSOR`; the API
-streams it to the page rather than building an array first.
+reads it in batches into a bounded array before returning JSON to the page.
 
 **7. Exception handling.** As a buyer, bid below a batch's minimum quantity.
 `pkg_krishi_rules` raises `ORA-20003` and the exact message reaches the
@@ -67,8 +67,9 @@ screen. Trying to pay an `ON_DELIVERY` order before it is delivered raises
 Update-2 moved cross-table business rules into `pkg_krishi_rules`, called
 from the service layer inside the same transaction. They raise the same
 application error numbers, so nothing downstream changed. Update-3 retains
-that design: its triggers only assign surrogate keys, while business rules
-remain explicit and easy to demonstrate in the package.
+that design for multi-step operations. The current nine triggers add input preparation,
+cross-table checks, status-transition guards and notifications; ordinary runtime inserts
+use sequence.NEXTVAL directly. See `database/02_trigger_layer.sql`.
 
 BR-19 is simpler as a procedure than it was as a trigger. Summing `PAYMENT`
 from a row trigger on `PAYMENT` raises `ORA-04091: table is mutating`, which
@@ -89,11 +90,11 @@ The amount is reserved as a `PENDING` payment before the session opens, so a
 balance cannot be paid twice, and settlement is confirmed by calling the
 gateway's validation API — the redirect body itself is never trusted.
 
-**Notifications.** The bell is in the nav and opens to "Will be implemented".
-The `NOTIFICATION` table and its seed rows exist; nothing is wired to them
-yet, pending a decision on which events are worth notifying about.
+**Notifications.** The navigation bell shows the latest 20 notifications and the unread
+count, with user-scoped mark-read actions. Triggers notify farmers of bids and verification,
+and the relevant farmer, buyer and manager of transport-status changes.
 
 **Build chain on Update-3.** `00_reset` → `01_create_tables` →
-`01_schema_automation` → `02_business_rules` → `03_insert_data` → `04_views`
+`01_schema_automation` → `02_trigger_layer` → `02_business_rules` → `03_insert_data` → `04_views`
 → `05_plsql_layer`. `06_advanced_queries`, `07_update2_demo`, and
 `08_update3_demo` are demonstrations rather than build steps.

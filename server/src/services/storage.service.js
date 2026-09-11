@@ -177,7 +177,7 @@ async function completeRelease(connection, allocation) {
   const paid = await connection.execute(
     `SELECT NVL(SUM(Amount), 0) AS Paid FROM PAYMENT
       WHERE PaymentType = 'STORAGE' AND AllocationID = :allocationId
-        AND PaymentStatus IN ('PENDING', 'COMPLETED')`,
+        AND PaymentStatus = 'COMPLETED'`,
     { allocationId: allocation.ALLOCATIONID }
   );
   const owed = allocation.STORAGEFEE || 0;

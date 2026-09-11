@@ -20,7 +20,7 @@
 
 | # | Decision | Value |
 |---|---|---|
-| D-1 | Database | **Oracle 11gR2 Express Edition, 11.2.0.2.0** — no IDENTITY columns, no FETCH FIRST. Sequences + BEFORE-INSERT triggers everywhere. See §9.8 for XE-specific limits. |
+| D-1 | Database | **Oracle 11gR2 Express Edition, 11.2.0.2.0** — no IDENTITY columns, no FETCH FIRST. Runtime inserts use sequences directly; USERS retains an ID/preparation trigger. See §9.8 for XE-specific limits. |
 | D-1a | Driver mode | **node-oracledb Thick mode is mandatory.** The default Thin mode requires Database 12.1+; it cannot connect to 11.2 at all. Requires Oracle Instant Client 19c and `oracledb.initOracleClient()` at startup. |
 | D-2 | Payment model | Direct buyer → farmer. No ARAT commission, no escrow. |
 | D-3 | Specialization | Physical subclass tables (`FARMER.FarmerID` is both PK and FK → `USERS`). |
@@ -444,24 +444,27 @@ The same Oracle download area also offers **Oracle Database 18c XE**, which remo
 
 ### 9.9 Oracle 11g implementation standards
 
-**11g has no `IDENTITY` columns.** Every surrogate PK needs a sequence and a trigger:
+**11g has no `IDENTITY` columns.** Runtime inserts normally use a sequence directly.
+Only `USERS` keeps an automatic-ID trigger example (which also normalizes email):
 
 ```sql
 CREATE SEQUENCE seq_users_id START WITH 1001 INCREMENT BY 1 NOCACHE;
 
-CREATE OR REPLACE TRIGGER trg_users_id
-BEFORE INSERT ON USERS
+CREATE OR REPLACE TRIGGER trg_users_prepare
+BEFORE INSERT OR UPDATE OF Email ON USERS
 FOR EACH ROW
-WHEN (NEW.UserID IS NULL)
 BEGIN
-  SELECT seq_users_id.NEXTVAL INTO :NEW.UserID FROM dual;
+  IF INSERTING AND :NEW.UserID IS NULL THEN
+    SELECT seq_users_id.NEXTVAL INTO :NEW.UserID FROM dual;
+  END IF;
+  :NEW.Email := LOWER(TRIM(:NEW.Email));
 END;
 /
 ```
 
 | Category | 11g recommendation |
 |---|---|
-| Surrogate keys | `NUMBER(10)` + sequence + BEFORE-INSERT trigger (one pair per table) |
+| Surrogate keys | `NUMBER(10)` + direct sequence.NEXTVAL; USERS retains one preparation trigger |
 | Short text | `VARCHAR2(n CHAR)` — **always with `CHAR` semantics** on any column that may hold Bengali (see §9.8.3) |
 | Long text | `CLOB` for Description, Comment, Complaint Description |
 | Money | `NUMBER(12,2)` |
@@ -479,7 +482,7 @@ END;
 | Transaction | Statements that must commit together |
 |---|---|
 | **Registration** | INSERT `USERS` + INSERT subclass row + INSERT `USER_PHONE` rows |
-| **Storage allocation** | INSERT `STORES` + UPDATE `STORAGE_UNIT.Status` + UPDATE batch → `STORED` |
+| **Storage allocation** | INSERT proposal into `STORES`; acceptance sets `IN_TRANSIT` and creates/redirects the inbound trip; driver arrival activates storage and sets date-in atomically |
 | **Place bid** | INSERT `BID` + UPDATE previous highest bid → `OUTBID` + set `PreviousBidID` |
 | **Award winning bid** | UPDATE `BID` → `WON` + UPDATE batch (`SOLD`, quantities) + INSERT `SALE_ORDER` + INSERT `TRANSPORT_REQUEST` |
 | **Assign transport** | INSERT `ASSIGNED_TO` + UPDATE `VEHICLE.Status` + UPDATE `TRANSPORT_REQUEST` → `ASSIGNED` |
@@ -664,7 +667,7 @@ krishichain/
     └── 05_plsql_layer.sql
 ```
 
-### 11.3 Front-end page inventory — 28 implemented page components
+### 11.3 Front-end page inventory — 29 implemented page components
 
 | Module | Implemented pages |
 |---|---|
@@ -673,12 +676,13 @@ krishichain/
 | Buyer | Dashboard, browse listings, batch detail/bid, my bids, orders, payments, storage, reviews |
 | Storage Manager | Dashboard, warehouses and units, requests and allocations |
 | Transport | Assignment dashboard with claim, pickup, transit and delivery actions |
-| Admin | Dashboard, users, daily prices, complaints and PL/SQL-backed reports |
+| Admin | Dashboard, users, daily prices, complaints, farm verification and PL/SQL-backed reports |
 
 The role-aware navigation makes each implemented page reachable while the API
 rechecks authorization on every protected route.
 
-**Narration script:** one page per team member listing, for each screen — what it does, which tables it reads/writes, which FR it satisfies. This is what gets asked during the walkthrough.
+**Narration script:** `docs/PRESENTATION.md` maps each role's screens to their tables,
+requirements and SQL examples. Assign the sections to team members before rehearsing.
 
 ---
 
@@ -701,8 +705,12 @@ rechecks authorization on every protected route.
 |---|---|
 | Constraint tests | Duplicate email, negative quantity, over-capacity allocation, bid below minimum, bid below current highest, self-bid, invalid status, ARAT self-parent |
 | Transaction tests | Force a failure mid-award and confirm all four statements roll back |
-| API tests | Postman collection per module (Phase 4+) |
-| UI tests | Manual walkthrough of J-01 → J-07 |
+| API tests | `server/test/workflows.js`: all five roles against real Oracle; fixtures rolled back; gateway mocked |
+| UI tests | `npm run test:browser` from server after building client; final human walkthrough still required |
+
+See `docs/TESTING.md` for tested coverage and limits. Fault injection must not change
+table definitions or constraints. Hosted SSLCommerz checkout/return is a separate
+acceptance check; mock callbacks and sandbox session initialization do not prove it.
 
 **Critical acceptance cases:** T-01 register creates user + subclass atomically · T-02 duplicate email rejected · T-03 over-capacity storage rejected · T-04 bid below current highest rejected · T-05 farmer cannot bid on own batch · T-06 award creates exactly one sale order · T-07 forced rollback leaves zero orphan rows · T-08 duplicate daily price rejected · T-09 delete of user with orders blocked · T-10 hierarchy query returns correct tiers · T-11 deleting a warehouse cascades its weak storage units.
 
@@ -741,7 +749,7 @@ payments. Random data makes the demonstrations return empty results.
 | Self-referencing FKs (`ParentAratID`, `PreviousBidID`) break seed inserts | Insert root ARATs and first bids with NULL, then `UPDATE` to set the links |
 | Composite FK from `STORES` to weak `STORAGE_UNIT(WarehouseID, UnitNo)` | Accept it — it's the visible proof the weak entity is real. Only two tables carry it |
 | Seed data too thin for analytics | Give at least 2 crops a 3-month run of daily prices so Q5's `LAG` shows a real trend |
-| Scope creep from Review/Complaint/Bazar | Keep P2 — tables and seed only |
+| Scope creep from Review/Complaint/Bazar | Buyer review and admin complaint handling exist; avoid expanding bazar administration for the final demo |
 | Frontend/API contract drifts | Keep form fields and route payloads aligned and run the role-based smoke walkthrough |
 
 ---
@@ -753,7 +761,7 @@ payments. Random data makes the demonstrations return empty results.
 - [ ] All 27 tables created with named constraints; script runs clean on an empty schema
 - [ ] 5 consistent demo rows per table
 - [ ] 5 advanced queries returning non-empty, explainable results
-- [ ] 28 front-end page components reachable through role-based navigation
+- [ ] 29 front-end page components reachable through role-based navigation
 - [ ] Every member can explain the pages and queries they own
 
 ---

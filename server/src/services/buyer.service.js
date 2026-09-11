@@ -578,7 +578,8 @@ async function payOrder(buyerId, saleOrderId, payload) {
 
     const paidResult = await connection.execute(
       `SELECT NVL(SUM(Amount), 0) AS Paid FROM PAYMENT
-        WHERE SaleOrderID = :saleOrderId AND PaymentStatus IN ('PENDING','COMPLETED')`,
+        WHERE SaleOrderID = :saleOrderId AND PaymentType = 'SALE'
+          AND PaymentStatus = 'COMPLETED'`,
       { saleOrderId }
     );
     const paid = paidResult.rows[0].PAID;
