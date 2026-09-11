@@ -137,20 +137,15 @@ INSERT INTO BUYER (BuyerID, BusinessName, BuyerType, TradeLicenseNo) VALUES (10,
 
 INSERT INTO ADMIN_STAFF (AdminID, EmployeeID, Designation) VALUES (11, 'KC-EMP-0011', 'Market Analyst');
 INSERT INTO ADMIN_STAFF (AdminID, EmployeeID, Designation) VALUES (12, 'KC-EMP-0012', 'Price Officer');
-INSERT INTO ADMIN_STAFF (AdminID, EmployeeID, Designation) VALUES (13, 'KC-EMP-0013', 'Compliance Officer');
+INSERT INTO ADMIN_STAFF (AdminID, EmployeeID, Designation) VALUES (13, 'KC-EMP-0013', 'Agriculture Officer');
 INSERT INTO ADMIN_STAFF (AdminID, EmployeeID, Designation) VALUES (14, 'KC-EMP-0014', 'Regional Coordinator');
 INSERT INTO ADMIN_STAFF (AdminID, EmployeeID, Designation) VALUES (15, 'KC-EMP-0015', 'System Administrator');
 
-INSERT INTO STORAGE_MANAGER (ManagerID, EmployeeID, Designation, HireDate, ShiftSchedule, CertificationNo) VALUES
- (16, 'KC-SM-0016', 'Chief Storage Officer', TRUNC(SYSDATE) - 400, 'NIGHT', 'BSTI-CS-2416');
-INSERT INTO STORAGE_MANAGER (ManagerID, EmployeeID, Designation, HireDate, ShiftSchedule, CertificationNo) VALUES
- (17, 'KC-SM-0017', 'Cold Chain Supervisor', TRUNC(SYSDATE) - 590, 'ROTATING', 'BSTI-CS-2417');
-INSERT INTO STORAGE_MANAGER (ManagerID, EmployeeID, Designation, HireDate, ShiftSchedule, CertificationNo) VALUES
- (18, 'KC-SM-0018', 'Warehouse Manager', TRUNC(SYSDATE) - 780, 'DAY', 'BSTI-CS-2418');
-INSERT INTO STORAGE_MANAGER (ManagerID, EmployeeID, Designation, HireDate, ShiftSchedule, CertificationNo) VALUES
- (19, 'KC-SM-0019', 'Warehouse Manager', TRUNC(SYSDATE) - 970, 'NIGHT', 'BSTI-CS-2419');
-INSERT INTO STORAGE_MANAGER (ManagerID, EmployeeID, Designation, HireDate, ShiftSchedule, CertificationNo) VALUES
- (20, 'KC-SM-0020', 'Assistant Storage Manager', TRUNC(SYSDATE) - 1160, 'ROTATING', 'BSTI-CS-2420');
+INSERT INTO STORAGE_MANAGER (ManagerID, Designation, ShiftSchedule) VALUES (16, 'Chief Storage Officer', 'NIGHT');
+INSERT INTO STORAGE_MANAGER (ManagerID, Designation, ShiftSchedule) VALUES (17, 'Cold Chain Supervisor', 'ROTATING');
+INSERT INTO STORAGE_MANAGER (ManagerID, Designation, ShiftSchedule) VALUES (18, 'Warehouse Manager', 'DAY');
+INSERT INTO STORAGE_MANAGER (ManagerID, Designation, ShiftSchedule) VALUES (19, 'Warehouse Manager', 'NIGHT');
+INSERT INTO STORAGE_MANAGER (ManagerID, Designation, ShiftSchedule) VALUES (20, 'Assistant Storage Manager', 'ROTATING');
 
 INSERT INTO TRANSPORT_PERSONNEL (PersonnelID, LicenseNo, ExperienceYears) VALUES (21, 'DK-HV-2011-0021', 13);
 INSERT INTO TRANSPORT_PERSONNEL (PersonnelID, LicenseNo, ExperienceYears) VALUES (22, 'RG-HV-2013-0022', 11);
@@ -173,11 +168,11 @@ INSERT INTO CROP (CropID, CropName, CategoryID, Unit, BasePrice, ShelfLifeDays, 
 INSERT INTO CROP (CropID, CropName, CategoryID, Unit, BasePrice, ShelfLifeDays, Description) VALUES (4, 'Onion',        4, 'kg', 45.00,  90, 'Highly price-volatile; Pabna and Faridpur belt.');
 INSERT INTO CROP (CropID, CropName, CategoryID, Unit, BasePrice, ShelfLifeDays, Description) VALUES (5, 'Mustard Seed', 5, 'kg', 68.00, 240, 'Crushed for edible oil; winter crop.');
 
-INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status) VALUES (1, 1, 'Karim Krishi Khamar',  12.50, 'Loam',       'Deep Tubewell',    'Kahaloo, Bogura',        'Bogura',     'ACTIVE');
-INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status) VALUES (2, 2, 'Rahima Agro Field',     8.75, 'Clay Loam',  'Canal',            'Mithapukur, Rangpur',    'Rangpur',    'ACTIVE');
-INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status) VALUES (3, 3, 'Jamal Potato Farm',    15.00, 'Silt Loam',  'Surface Pump',     'Tongibari, Munshiganj',  'Munshiganj', 'ACTIVE');
-INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status) VALUES (4, 4, 'Shafiq Onion Field',    6.25, 'Sandy Loam', 'Shallow Tubewell', 'Sujanagar, Pabna',       'Pabna',      'ACTIVE');
-INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status) VALUES (5, 5, 'Nurjahan Oilseed Farm',10.00, 'Alluvial',   'Rainfed',          'Nagarkanda, Faridpur',   'Faridpur',   'ACTIVE');
+INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status, VerificationStatus, VerificationRequestedAt, VerificationReviewedAt, VerifiedByAdminID) VALUES (1, 1, 'Karim Krishi Khamar',  12.50, 'Loam',       'Deep Tubewell',    'Kahaloo, Bogura',        'Bogura',     'ACTIVE', 'VERIFIED', TRUNC(SYSDATE)-65, TRUNC(SYSDATE)-62, 13);
+INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status, VerificationStatus, VerificationRequestedAt, VerificationReviewedAt, VerifiedByAdminID) VALUES (2, 2, 'Rahima Agro Field',     8.75, 'Clay Loam',  'Canal',            'Mithapukur, Rangpur',    'Rangpur',    'ACTIVE', 'VERIFIED', TRUNC(SYSDATE)-60, TRUNC(SYSDATE)-58, 13);
+INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status, VerificationStatus, VerificationRequestedAt) VALUES (3, 3, 'Jamal Potato Farm',    15.00, 'Silt Loam',  'Surface Pump',     'Tongibari, Munshiganj',  'Munshiganj', 'ACTIVE', 'PENDING', TRUNC(SYSDATE)-12);
+INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status, VerificationStatus, VerificationRequestedAt) VALUES (4, 4, 'Shafiq Onion Field',    6.25, 'Sandy Loam', 'Shallow Tubewell', 'Sujanagar, Pabna',       'Pabna',      'ACTIVE', 'PENDING', TRUNC(SYSDATE)-8);
+INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status, VerificationStatus, VerificationRequestedAt) VALUES (5, 5, 'Nurjahan Oilseed Farm',10.00, 'Alluvial',   'Rainfed',          'Nagarkanda, Faridpur',   'Faridpur',   'ACTIVE', 'PENDING', TRUNC(SYSDATE)-3);
 
 COMMIT;
 
@@ -195,22 +190,22 @@ UPDATE VIRTUAL_ARAT SET ParentAratID = 3 WHERE AratID = 5;
 COMMIT;
 
 
-INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, QualityGrade, MoisturePercentage, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
- (1, 1, 1, 4, TRUNC(SYSDATE) - 60, 5000.000, 0.000, 4000.000, 'A', 13.50, 34.00, TRUNC(SYSDATE) - 58, TRUNC(SYSDATE) - 52, 'SOLD', 500.000);
-INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, QualityGrade, MoisturePercentage, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
- (2, 2, 3, 2, TRUNC(SYSDATE) - 55, 2000.000, 0.000, 1500.000, 'A', 10.20, 98.00, TRUNC(SYSDATE) - 53, TRUNC(SYSDATE) - 47, 'SOLD', 200.000);
-INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, QualityGrade, MoisturePercentage, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
- (3, 3, 2, 5, TRUNC(SYSDATE) - 50, 8000.000, 0.000, 6000.000, 'B', 78.40, 19.50, TRUNC(SYSDATE) - 48, TRUNC(SYSDATE) - 42, 'SOLD', 800.000);
-INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, QualityGrade, MoisturePercentage, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
- (4, 4, 4, 3, TRUNC(SYSDATE) - 30, 3500.000, 0.000, 3000.000, 'A', 12.80, 47.00, TRUNC(SYSDATE) - 28, TRUNC(SYSDATE) - 22, 'SOLD', 350.000);
-INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, QualityGrade, MoisturePercentage, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
- (5, 5, 5, 3, TRUNC(SYSDATE) - 18, 2500.000, 0.000, 2000.000, 'B', 8.90, 70.00, TRUNC(SYSDATE) - 16, TRUNC(SYSDATE) - 10, 'SOLD', 250.000);
-INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, QualityGrade, MoisturePercentage, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
- (6, 1, 2, 4, TRUNC(SYSDATE) - 10, 4000.000, 0.000, 0.000, 'A', 76.10, 20.00, TRUNC(SYSDATE) - 3, TRUNC(SYSDATE) + 4, 'BIDDING_OPEN', 400.000);
-INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, QualityGrade, MoisturePercentage, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
- (7, 3, 4, 5, TRUNC(SYSDATE) - 7,  3000.000, 0.000, 0.000, 'B', 13.10, 48.00, TRUNC(SYSDATE) - 2, TRUNC(SYSDATE) + 5, 'BIDDING_OPEN', 300.000);
-INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, QualityGrade, MoisturePercentage, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
- (8, 2, 1, 2, TRUNC(SYSDATE) - 5,  1800.000, 0.000, 0.000, 'A', 12.90, 35.00, TRUNC(SYSDATE) + 1, TRUNC(SYSDATE) + 6, 'LISTED', 180.000);
+INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
+ (1, 1, 1, 4, TRUNC(SYSDATE) - 60, 5000.000, 0.000, 4000.000, 34.00, TRUNC(SYSDATE) - 58, TRUNC(SYSDATE) - 52, 'SOLD', 500.000);
+INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
+ (2, 2, 3, 2, TRUNC(SYSDATE) - 55, 2000.000, 0.000, 1500.000, 98.00, TRUNC(SYSDATE) - 53, TRUNC(SYSDATE) - 47, 'SOLD', 200.000);
+INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
+ (3, 3, 2, 5, TRUNC(SYSDATE) - 50, 8000.000, 0.000, 6000.000, 19.50, TRUNC(SYSDATE) - 48, TRUNC(SYSDATE) - 42, 'SOLD', 800.000);
+INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
+ (4, 4, 4, 3, TRUNC(SYSDATE) - 30, 3500.000, 0.000, 3000.000, 47.00, TRUNC(SYSDATE) - 28, TRUNC(SYSDATE) - 22, 'SOLD', 350.000);
+INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
+ (5, 5, 5, 3, TRUNC(SYSDATE) - 18, 2500.000, 0.000, 2000.000, 70.00, TRUNC(SYSDATE) - 16, TRUNC(SYSDATE) - 10, 'SOLD', 250.000);
+INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
+ (6, 1, 2, 4, TRUNC(SYSDATE) - 10, 4000.000, 0.000, 0.000, 20.00, TRUNC(SYSDATE) - 3, TRUNC(SYSDATE) + 4, 'BIDDING_OPEN', 400.000);
+INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
+ (7, 3, 4, 5, TRUNC(SYSDATE) - 7,  3000.000, 0.000, 0.000, 48.00, TRUNC(SYSDATE) - 2, TRUNC(SYSDATE) + 5, 'BIDDING_OPEN', 300.000);
+INSERT INTO HARVEST_BATCH (BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity) VALUES
+ (8, 2, 1, 2, TRUNC(SYSDATE) - 5,  1800.000, 0.000, 0.000, 35.00, TRUNC(SYSDATE) + 1, TRUNC(SYSDATE) + 6, 'LISTED', 180.000);
 
 COMMIT;
 
@@ -221,20 +216,20 @@ INSERT INTO WAREHOUSE (WarehouseID, WarehouseName, Address, District, Capacity, 
 INSERT INTO WAREHOUSE (WarehouseID, WarehouseName, Address, District, Capacity, ManagerID, StorageFeePerKgRate) VALUES (4, 'Pabna Central Warehouse',       'Rupkatha Road, Pabna Sadar',    'Pabna',      250000.000, 19, 5.50);
 INSERT INTO WAREHOUSE (WarehouseID, WarehouseName, Address, District, Capacity, ManagerID, StorageFeePerKgRate) VALUES (5, 'Faridpur Grain Store',          'Mujib Road, Faridpur Sadar',    'Faridpur',   200000.000, 20, 5.00);
 
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status) VALUES (1, 1, 60000.000, 'EMPTY');
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status) VALUES (1, 2, 60000.000, 'PARTIAL');
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status) VALUES (2, 1, 40000.000, 'EMPTY');
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status) VALUES (2, 2, 40000.000, 'EMPTY');
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status) VALUES (3, 1, 90000.000, 'EMPTY');
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status) VALUES (3, 2, 90000.000, 'PARTIAL');
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status) VALUES (4, 1, 35000.000, 'PARTIAL');
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status) VALUES (4, 2, 35000.000, 'EMPTY');
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status) VALUES (5, 1, 25000.000, 'PARTIAL');
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status) VALUES (5, 2, 25000.000, 'MAINTENANCE');
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status) VALUES (1, 1, 'Sherpur Road - Bay A', 60000.000, 'EMPTY');
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status) VALUES (1, 2, 'Sherpur Road - Bay B', 60000.000, 'PARTIAL');
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status) VALUES (2, 1, 'Jail Road - North Unit', 40000.000, 'EMPTY');
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status) VALUES (2, 2, 'Jail Road - South Unit', 40000.000, 'EMPTY');
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status) VALUES (3, 1, 'Bazar Road - Block A', 90000.000, 'EMPTY');
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status) VALUES (3, 2, 'Bazar Road - Block B', 90000.000, 'PARTIAL');
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status) VALUES (4, 1, 'Rupkatha Road - Shed 1', 35000.000, 'PARTIAL');
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status) VALUES (4, 2, 'Rupkatha Road - Shed 2', 35000.000, 'EMPTY');
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status) VALUES (5, 1, 'Mujib Road - Grain Bay', 25000.000, 'PARTIAL');
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status) VALUES (5, 2, 'Mujib Road - Service Bay', 25000.000, 'MAINTENANCE');
 
-INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, Capacity, Status)
+INSERT INTO STORAGE_UNIT (WarehouseID, UnitNo, LocationTag, Capacity, Status)
 VALUES (1, (SELECT NVL(MAX(UnitNo), 0) + 1 FROM STORAGE_UNIT WHERE WarehouseID = 1),
-        45000.000, 'EMPTY');
+        'Sherpur Road - Overflow Bay', 45000.000, 'EMPTY');
 
 INSERT INTO STORES (AllocationID, BatchID, WarehouseID, UnitNo, ManagerID, QuantityStored, DateIn, DateOut, AllocationStatus, RequestedByFarmerID, MinimumStorageDays, StorageFeePerKgSnapshot, ProposedBy) VALUES (1, 1, 1, 1, 16, 5000.000, TRUNC(SYSDATE) - 59, TRUNC(SYSDATE) - 45, 'COMPLETED', 1, 10, 7.50, 'MANAGER');
 INSERT INTO STORES (AllocationID, BatchID, WarehouseID, UnitNo, ManagerID, QuantityStored, DateIn, DateOut, AllocationStatus, RequestedByFarmerID, MinimumStorageDays, StorageFeePerKgSnapshot, ProposedBy) VALUES (2, 2, 2, 1, 17, 2000.000, TRUNC(SYSDATE) - 54, TRUNC(SYSDATE) - 40, 'COMPLETED', 2, 10, 6.00, 'MANAGER');
@@ -499,7 +494,7 @@ SELECT BatchID, BidID, PreviousBidID, BidPricePerKg, Status FROM BID ORDER BY Ba
 
 PROMPT
 PROMPT ============ WEAK ENTITY PARTIAL KEYS ============
-PROMPT Warehouse 1 should show unit 3, assigned by trg_storage_unit_no
+PROMPT Warehouse 1 should show unit 3, assigned with a per-warehouse subquery
 SELECT WarehouseID, UnitNo, Status FROM STORAGE_UNIT ORDER BY WarehouseID, UnitNo;
 
 PROMPT
@@ -512,5 +507,3 @@ LEFT   JOIN PAYMENT p ON p.SaleOrderID = so.SaleOrderID
                      AND p.PaymentStatus IN ('PENDING','COMPLETED')
 GROUP  BY so.SaleOrderID, so.PaymentTerms, so.TotalAmount
 ORDER  BY so.SaleOrderID;
-
-

@@ -9,6 +9,8 @@ export default function BatchDetail() {
   const [bids, setBids] = useState([]);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [notice, setNotice] = useState('');
+  const [schedule, setSchedule] = useState({ biddingStartTime: '', biddingEndTime: '' });
 
   const [awarding, setAwarding] = useState(null);
   const [terms, setTerms] = useState('ON_DELIVERY');
@@ -41,6 +43,27 @@ export default function BatchDetail() {
       });
       setResult(res);
       setAwarding(null);
+      await load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function scheduleBidding(event) {
+    event.preventDefault();
+    setError('');
+    setNotice('');
+    setBusy(true);
+    try {
+      const updated = await api(`/farmer/batches/${batchId}/listing`, {
+        method: 'PATCH',
+        body: schedule,
+      });
+      setNotice(
+        `Batch listed. Bidding opens ${dateTime(updated.biddingStartTime)} and closes ${dateTime(updated.biddingEndTime)}.`
+      );
       await load();
     } catch (e) {
       setError(e.message);
@@ -92,6 +115,8 @@ export default function BatchDetail() {
         </div>
       )}
 
+      {notice && <div className="success">{notice}</div>}
+
       <div className="stats">
         <Stat label="Total" value={`${number(batch.totalQuantity)} kg`} />
         <Stat label="Sold" value={`${number(batch.soldQuantity)} kg`} />
@@ -105,11 +130,60 @@ export default function BatchDetail() {
       </div>
 
       <p className="muted">
-        Grade {batch.qualityGrade || '—'} · moisture{' '}
-        {batch.moisturePercentage ?? '—'}% · crop base price {batch.cropBasePrice}/kg
+        Crop base price ৳{batch.cropBasePrice}/{batch.unit}
+        {batch.farmVerificationStatus === 'VERIFIED' && ' · ✓ Ministry verified farm'}
         {batch.pctAboveMinimum != null && ` · highest bid is ${batch.pctAboveMinimum}% above your minimum`}
+        {batch.biddingStartTime && ` · opens ${dateTime(batch.biddingStartTime)}`}
         {batch.biddingEndTime && ` · closes ${dateTime(batch.biddingEndTime)}`}
       </p>
+
+      {batch.status === 'CREATED' && (
+        <section className="boxed">
+          <h2>Complete draft and schedule bidding</h2>
+          <p className="muted">
+            This batch is saved as a draft and is not visible in the buyer marketplace. Set both
+            dates to list it. Its minimum price is ৳{batch.minimumPrice}/kg; the crop base price is
+            ৳{batch.cropBasePrice}/{batch.unit}.
+          </p>
+          <form onSubmit={scheduleBidding}>
+            <div className="grid">
+              <label>
+                Bidding opens *
+                <input
+                  type="datetime-local"
+                  value={schedule.biddingStartTime}
+                  onChange={(e) =>
+                    setSchedule({ ...schedule, biddingStartTime: e.target.value })
+                  }
+                  required
+                />
+              </label>
+              <label>
+                Bidding closes *
+                <input
+                  type="datetime-local"
+                  value={schedule.biddingEndTime}
+                  onChange={(e) =>
+                    setSchedule({ ...schedule, biddingEndTime: e.target.value })
+                  }
+                  required
+                />
+              </label>
+            </div>
+            <button
+              type="submit"
+              disabled={
+                busy ||
+                !schedule.biddingStartTime ||
+                !schedule.biddingEndTime ||
+                new Date(schedule.biddingEndTime) <= new Date(schedule.biddingStartTime)
+              }
+            >
+              {busy ? 'Listing…' : 'List batch for bidding'}
+            </button>
+          </form>
+        </section>
+      )}
 
       <h2>Bids</h2>
       {error && <p className="error">{error}</p>}

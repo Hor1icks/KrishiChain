@@ -83,8 +83,10 @@ farmer with an open auction, the most interesting one to start with.
 Every time after that, it's just `./start.sh` — the container already
 exists so it starts in seconds, dependencies are already installed.
 `Ctrl+C` stops both servers; the database container keeps running in the
-background. `./start.sh --rebuild` wipes and rebuilds the schema from empty
-if you ever need a clean slate.
+background. When an older persistent volume is detected, the script adds the
+Update-3 sequences, indexes and views plus the current 9-trigger layer without resetting data.
+`./start.sh --rebuild` wipes and rebuilds the schema from empty if you ever
+need a clean slate.
 
 ### From nothing, by hand (skipping the script)
 
@@ -151,16 +153,25 @@ through `./db.sh`:
 
 ```bash
 ./db.sh database/01_create_tables.sql
+./db.sh database/01_schema_automation.sql
 ./db.sh database/02_business_rules.sql
 ./db.sh database/03_insert_data.sql
 ./db.sh database/04_views.sql
+./db.sh database/05_plsql_layer.sql
+
+# Existing Update 3 data only (normally applied automatically by ./start.sh)
+./db.sh database/09_update4_migration.sql
+./db.sh database/09_update4_indexes.sql
+./db.sh database/04_views.sql
+./db.sh database/02_business_rules.sql
 ./db.sh database/05_plsql_layer.sql
 ```
 
 Put `database/00_reset.sql` in front of that list for a genuinely clean build.
 `03_insert_data.sql` wipes every table before re-seeding, so never run it just
-to look at the data. `06_advanced_queries.sql` and `99_inspect_data.sql` are
-read-only and are not part of the build.
+to look at the data. `06_advanced_queries.sql`, `07_update2_demo.sql`,
+`08_update3_demo.sql`, and `99_inspect_data.sql` are demonstrations/inspection
+and are not build steps.
 
 Then the two servers, in separate terminals:
 
@@ -195,17 +206,23 @@ you get `ORA-01017`.
 
 ## The database
 
-27 tables, 41 foreign keys, 190 check constraints, 6 views, 3 PL/SQL packages
-and one object type.
+27 tables, 43 foreign keys, 61 check constraints, 8 views, 3 PL/SQL packages,
+18 sequences, 9 varied triggers, 31 application indexes, and one
+object type.
 
 Oracle 11g shapes most of the design decisions. There are no `IDENTITY`
-columns, so a new row derives its own key from the table it is going into:
+columns, so application inserts use their sequence directly. One `USERS`
+trigger retains the automatic-key example while also normalizing email:
 
 ```sql
 INSERT INTO BID (BidID, BatchID, ...)
-VALUES ((SELECT NVL(MAX(BidID), 0) + 1 FROM BID), :batchId, ...)
+VALUES (seq_bid_id.NEXTVAL, :batchId, ...)
 RETURNING BidID INTO :bidId;
 ```
+
+Runtime sequences start at 1001 so fixed seed IDs remain readable. Ordinary
+indexes cover common foreign-key joins and filters without duplicating the
+indexes Oracle creates for primary-key and unique constraints.
 
 There is no `FETCH FIRST n ROWS`, so row-limiting uses `ROWNUM` inside an
 inline view. Text that may hold Bengali is `VARCHAR2(n CHAR)` rather than byte
@@ -250,11 +267,13 @@ unit: registration, storage allocation, placing a bid, awarding a winning bid,
 assigning transport, and delivery with payment.
 
 Buyers can settle an order in cash or through SSLCommerz's hosted checkout.
+The same SSLCommerz checkout is available for storage fees owed by either a
+farmer or a buyer; both role routes use the same server-side validation flow.
 The card flow reserves the amount as a `PENDING` payment before opening the
 session, so the balance cannot be paid twice, and confirms settlement by
 calling the gateway's validation API rather than trusting the redirect it
-receives. Leave `SSLCZ_STORE_ID` blank in `server/.env` and the card option
-disappears.
+receives. Keep `SSLCZ_STORE_ID` and `SSLCZ_STORE_PASSWORD` populated in
+`server/.env`; intentionally leaving either blank disables online checkout.
 
 ---
 
@@ -272,8 +291,9 @@ client/            React front end, 28 pages across five role modules
 Phase1/            one-time environment setup and connectivity checks
 ```
 
-`UPDATE2.md` maps each technique the coursework asks for to the page that
-exercises it. Start there if you are reviewing this build.
+`UPDATE2.md` maps the earlier SQL and PL/SQL techniques to the application.
+`UPDATE3.md` maps the Week-11 sequences, varied triggers and indexes. Start with
+those two files if you are reviewing this build.
 
 ---
 

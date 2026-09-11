@@ -77,6 +77,7 @@ async function callCursor(plsql, binds = {}, { batchSize = 200, maxRows = 20000 
       if (batch.length === 0) break;
       rows.push(...batch);
       if (rows.length >= maxRows) {
+        rows.length = maxRows;
         truncated = true;
         break;
       }

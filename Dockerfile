@@ -31,13 +31,15 @@ FROM gvenzl/oracle-xe:11.2.0.2-slim-faststart
 # /container-entrypoint-initdb.d/ gets its own fresh SYSDBA session, and
 # these files assume they're already connected as krishichain).
 COPY database/01_create_tables.sql \
+     database/01_schema_automation.sql \
+     database/02_trigger_layer.sql \
      database/02_business_rules.sql \
      database/03_insert_data.sql \
      database/04_views.sql \
      database/05_plsql_layer.sql \
      /opt/krishichain/database/
 
-# The one new file: creates the krishichain user, connects as it, then
-# @-includes the five files above in order. This is what actually runs on
+# The bootstrap file creates the krishichain user, connects as it, then
+# @-includes the seven files above in order. This is what actually runs on
 # first boot.
 COPY docker/bootstrap.sql /container-entrypoint-initdb.d/01_bootstrap.sql

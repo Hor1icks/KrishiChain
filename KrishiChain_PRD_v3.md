@@ -5,11 +5,11 @@
 | Item | Value |
 |---|---|
 | Product name | KrishiChain |
-| Version | 3.0 (development-ready) |
+| Version | 3.1 (Update-3 implementation) |
 | Course | CSE-302: Database Management Systems Sessional |
 | Group / Section | A6 / Section-A |
 | Institution | Military Institute of Science and Technology |
-| Stack | React.js + Bootstrap 5 · Node.js/Express · **Oracle Database 11g Release 2 Express Edition (11.2.0.2.0)** · node-oracledb in **Thick mode** + Oracle Instant Client 19c |
+| Stack | React.js + React Router + project CSS · Node.js/Express · **Oracle Database 11g Release 2 Express Edition (11.2.0.2.0)** · node-oracledb in **Thick mode** + Oracle Instant Client 19c |
 | Date | August 2026 |
 
 **Submitted by:** Eftee Wasit Hadi (202214170) · Najifa Raksanda (202414010) · Aria Nawshin Ashka (202414021) · Mohammad Mushfiqur Rahman (202414038) · Farhan Intesar Mugdho (202414042)
@@ -29,12 +29,14 @@
 | D-6 | Ternary relationships | `STORES` (Batch × Unit × Manager) and `ASSIGNED_TO` (TransportRequest × Vehicle × Personnel) |
 | D-7 | Weak entities | `STORAGE_UNIT` on `WAREHOUSE`; `BAZAR_DAILY_RECORD` on `PHYSICAL_BAZAR`. `HARVEST_BATCH` is a **strong** entity with surrogate `BatchID`. |
 | D-8 | Recursive relationships | `VIRTUAL_ARAT.ParentAratID` (ARAT hierarchy) and `BID.PreviousBidID` (outbid chain) |
-| D-9 | Update-1 data source | Frontend mock data layer; Express wired in Phase 4 |
-| D-10 | UI framework | Bootstrap 5 |
+| D-9 | Application data source | React calls the Express API; all application data comes from Oracle |
+| D-10 | UI framework | React with project CSS and React Router |
 | D-11 | Bidding model | One bidding window per batch, one winning bid, whole batch to one buyer |
-| D-12 | Review / Complaint | P2 — tables created and seeded, no UI in Update-1 |
+| D-12 | Review / Complaint | Tables, buyer review page, and admin complaint workflow implemented |
+| D-13 | Update-3 automation | 18 sequences, 9 varied validation/notification triggers, and 31 ordinary B-tree indexes |
 
-**Still worth confirming:** BR-20 assumes payment happens *after* delivery. If you want payment on order confirmation, that changes the transaction in §9.8.
+**Payment timing decision:** `ON_DELIVERY` payment waits for delivery;
+`ADVANCE` payment may be made before delivery.
 
 ---
 
@@ -64,7 +66,8 @@ One centralized relational database holding crops, farms, harvests, storage, bid
 
 **2.3 Non-goals**
 
-- No real payment gateway — payment records are captured, not processed.
+- No escrow or custom card handling. Optional online payment uses SSLCommerz's
+  hosted checkout; cash-on-delivery can be recorded by transport personnel.
 - No GPS or live vehicle tracking; transport status is manually updated.
 - No mobile app; responsive web only.
 - No machine learning. "Nearest ARAT" is a deterministic district/region lookup, not a routing algorithm.
@@ -101,8 +104,8 @@ One centralized relational database holding crops, farms, harvests, storage, bid
 | ID | Journey | Happy path |
 |---|---|---|
 | J-01 | Farmer onboarding | Register as Farmer → NID/bank details captured in `FARMER` → add Farm (area, soil, irrigation, district) → district maps to nearest Virtual ARAT |
-| J-02 | Harvest to listing | Create harvest batch (farm, crop, quantity, grade, moisture) → optionally request storage → batch auto-assigned to nearest ARAT → farmer sets minimum price and bidding window → status `BIDDING_OPEN` |
-| J-03 | Storage allocation (ternary) | Farmer requests storage → storage manager selects a unit with free capacity → `STORES` row records batch + unit + manager + quantity + date-in → unit status recalculated |
+| J-02 | Harvest to listing | Create harvest batch (farm, crop, quantity) → optionally request storage → batch auto-assigned to nearest ARAT → farmer sets minimum price and bidding window → status `BIDDING_OPEN` |
+| J-03 | Storage allocation (ternary) | Farmer requests storage → manager selects a specifically located unit → acceptance reserves capacity and creates an inbound trip → driver delivery records date-in and activates storage |
 | J-04 | Bidding | Buyers browse ARAT listings → place bids above the current highest and at or above the minimum price → each new bid marks the previous highest as `OUTBID` and links to it → window closes at end time |
 | J-05 | Award to payment | Farmer accepts the winning bid → sale order created + batch quantities updated + transport request created, all atomically → transport assigned to vehicle + personnel → delivery completed → buyer pays farmer directly |
 | J-06 | Price transparency | Admin logs daily market price per crop per ARAT and physical bazar daily records → farmer dashboard compares accepted price vs same-day ARAT price vs bazar price vs crop base price |
@@ -122,20 +125,25 @@ One centralized relational database holding crops, farms, harvests, storage, bid
 - Farmer creates/edits/deactivates own farms: name, area, soil type, irrigation type, location, district.
 - A farm belongs to exactly one farmer; a farmer may own many farms.
 - Farm district determines the assigned Virtual ARAT for all batches from that farm.
+- Every new farm joins an oldest-first ministry verification queue. Pending status does not block
+  listings; an admin review can add a farm-specific `Ministry verified` badge.
 
 **FR-CROP — Crop catalogue (admin)**
 - Admin manages crop name, category, unit, base price, shelf life, description.
 - Base price is the regulatory floor: no batch may set a minimum price below it.
 
 **FR-HARVEST — Harvest batches and bidding window**
-- Farmer records batch: farm, crop, harvest date, total quantity, quality grade, moisture percentage.
+- Farmer records batch: farm, crop, harvest date and total quantity. Unverifiable quality and
+  moisture claims are not stored.
 - Farmer sets `MinimumPrice`, `BiddingStartTime`, `BiddingEndTime` on the batch to open it for bidding.
 - `AvailableQuantity` is derived as `Total − Reserved − Sold`.
 - Status lifecycle: `CREATED → STORED → LISTED → BIDDING_OPEN → BIDDING_CLOSED → SOLD → DELIVERED` (or `EXPIRED`).
 
 **FR-STORE — Warehouse and storage units**
 - Warehouse has many numbered storage units; a unit is identified only within its warehouse (weak entity).
+- Each unit has a required exact `LocationTag` within its warehouse.
 - Allocation records which batch went into which unit, authorised by which manager, in what quantity, with date-in and date-out.
+- Acceptance sets the allocation to `IN_TRANSIT`; only driver-confirmed arrival sets `DateIn` and `ACTIVE`.
 - A unit's current load may never exceed its capacity; the allocation transaction rolls back if it would.
 
 **FR-ARAT — Virtual ARAT**
@@ -146,8 +154,9 @@ One centralized relational database holding crops, farms, harvests, storage, bid
 **FR-BID — Bidding**
 - Buyer bid must be at or above the batch `MinimumPrice` **and** strictly above the current highest bid.
 - Requested quantity ≤ available quantity of the batch.
-- A farmer may not bid on their own batch. A buyer may hold only one `ACTIVE` bid per batch.
-- Bids accepted only while batch status is `BIDDING_OPEN` and `SYSDATE < BiddingEndTime`.
+- A farmer may not bid on their own batch. A batch has one standing `ACTIVE`
+  bid; a higher bid marks the previous standing bid `OUTBID`.
+- Bids are accepted for a listed/open batch only inside its bidding time window.
 - Each new bid records `PreviousBidID`, forming a traceable outbid chain.
 - `CurrentHighestBid` is derived from the bid set, never typed in.
 - Bid status: `ACTIVE → OUTBID / WON / WITHDRAWN`.
@@ -161,10 +170,13 @@ One centralized relational database holding crops, farms, harvests, storage, bid
 - Payment links sale order, paying buyer, and receiving farmer.
 - Records amount, method, date, transaction reference, status (`PENDING / COMPLETED / FAILED / REFUNDED`).
 - Total payments against a sale order may not exceed its total amount.
+- The same `PAYMENT` table records storage fees through a checked `PaymentType`
+  discriminator and `AllocationID`.
 
 **FR-TRANS — Transport**
 - Transport request links a sale order to a vehicle and a transport personnel (ternary).
-- Vehicle capacity must be ≥ the accepted quantity.
+- The combined capacity of active vehicles must be ≥ the accepted quantity
+  before the request becomes assigned.
 - Status: `ASSIGNED → PICKED_UP → IN_TRANSIT → DELIVERED` or `FAILED`.
 
 **FR-PRICE — Daily market price**
@@ -268,7 +280,7 @@ Draw each as a single diamond with two lines back to the same entity box, with r
 | BR-03 | Passwords stored hashed only | No plain-text value in any table |
 | BR-04 | A farm belongs to exactly one farmer; batches inherit that farmer | Cross-farmer batch insert rejected |
 | BR-05 | `TotalQuantity > 0`; `Available = Total − Reserved − Sold`, never negative | CHECK constraints + transaction recalculation |
-| BR-06 | `MoisturePercentage` 0–100; `QualityGrade` in ('A','B','C') | CHECK constraints |
+| BR-06 | Farm verification is `PENDING`, `VERIFIED`, or `REJECTED` and does not block marketplace use | CHECK constraint + oldest-first admin queue |
 | BR-07 | Allocation cannot push a unit's load above its capacity | Over-capacity allocation rolls back with a clear error |
 | BR-08 | A batch cannot be allocated to the same unit twice on the same date | UNIQUE(BatchID, WarehouseID, UnitNo, DateIn) |
 | BR-09 | Batch `MinimumPrice ≥ Crop.BasePrice` | Opening a window below base price rejected |
@@ -276,13 +288,13 @@ Draw each as a single diamond with two lines back to the same entity box, with r
 | BR-11 | Bid must be ≥ `MinimumPrice` **and** > current highest bid | Lower/equal bid rejected |
 | BR-12 | `RequestedQuantity ≤ AvailableQuantity` | Over-quantity bid rejected |
 | BR-13 | A farmer cannot bid on their own batch | Rejected by server ownership check |
-| BR-14 | One `ACTIVE` bid per buyer per batch | Server check; second active bid rejected |
-| BR-15 | Bids accepted only when status is `BIDDING_OPEN` and before `BiddingEndTime` | Late bid returns validation error |
-| BR-16 | At most one `WON` bid per batch, and exactly one sale order per winning bid | UNIQUE on `SALE_ORDER.BidID`; second award attempt rejected |
+| BR-14 | One standing `ACTIVE` bid per batch | Higher bid marks the previous standing bid `OUTBID` in the same transaction |
+| BR-15 | Bids accepted for listed/open batches only inside the configured bidding window | Early or late bid returns a validation error |
+| BR-16 | At most one accepted winner per batch, and exactly one sale order per winning bid | Locked batch state + UNIQUE on `SALE_ORDER.BidID`; second award attempt rejected |
 | BR-17 | Award is atomic: bid → `WON`, batch → `SOLD`, sale order insert, quantity update, transport request insert | Forced failure of any step rolls all five back |
-| BR-18 | Vehicle capacity ≥ accepted quantity | Assignment rejected otherwise |
+| BR-18 | Combined capacity of active assigned vehicles ≥ accepted quantity | More vehicles may be added; trip becomes `ASSIGNED` only when capacity is sufficient |
 | BR-19 | Payments for a sale order may not exceed its total amount | Over-payment rejected |
-| BR-20 | Payment allowed only when transport status is `DELIVERED` | Early payment returns validation error |
+| BR-20 | `ON_DELIVERY` payment requires `DELIVERED`; `ADVANCE` may be paid earlier | Payment package checks the order's terms before inserting |
 | BR-21 | One daily price row per crop per ARAT per date | Second insert for the same triple rejected by PK |
 | BR-22 | An ARAT cannot be its own parent, and the hierarchy has no cycles | CHECK `ParentAratID <> AratID`; `CONNECT BY NOCYCLE` |
 | BR-23 | One review per sale order | UNIQUE(SaleOrderID) |
@@ -293,18 +305,19 @@ Draw each as a single diamond with two lines back to the same entity box, with r
 
 ## 9. Relational Schema (Oracle 11g)
 
-**24 core tables + 2 optional (P2).** ✚ = composite key.
+**27 implemented tables.** ✚ = composite key. The executable source of truth
+for every column and constraint is `database/01_create_tables.sql`.
 
 ### 9.1 Identity and specialization
 
 | # | Table | PK | Key columns | Constraints |
 |---|---|---|---|---|
-| 1 | `USERS` | `UserID` | FirstName, MiddleName, LastName, Email, PasswordHash, Gender, DateOfBirth, HouseNo, Road, Village, Upazila, District, PostalCode, RegistrationDate, Status, Role | UQ(Email); CHECK Role in 5 values; CHECK Status in ('ACTIVE','BLOCKED','INACTIVE'); CHECK Gender |
+| 1 | `USERS` | `UserID` | FirstName, MiddleName, LastName, Email, PasswordHash, Gender, DateOfBirth, `Address t_address`, RegistrationDate, Status, Role | UQ(Email); CHECK Role in 5 values; CHECK Status in ('ACTIVE','BLOCKED','INACTIVE'); CHECK Gender |
 | 2 | `USER_PHONE` | ✚(UserID, PhoneNo) | — | FK→USERS ON DELETE CASCADE *(multivalued attribute)* |
 | 3 | `FARMER` | `FarmerID` | NID, BankAccountNo, MobileBankingNo, ExperienceYears | PK is FK→USERS; UQ(NID); CHECK ExperienceYears ≥ 0 |
 | 4 | `BUYER` | `BuyerID` | BusinessName, BuyerType, TradeLicenseNo | PK is FK→USERS; UQ(TradeLicenseNo); CHECK BuyerType in ('WHOLESALER','RETAILER','EXPORTER','PROCESSOR') |
 | 5 | `ADMIN_STAFF` | `AdminID` | EmployeeID, Designation | PK is FK→USERS; UQ(EmployeeID) |
-| 6 | `STORAGE_MANAGER` | `ManagerID` | EmployeeID | PK is FK→USERS; UQ(EmployeeID) |
+| 6 | `STORAGE_MANAGER` | `ManagerID` | Designation, ShiftSchedule | PK is FK→USERS; CHECK shift |
 | 7 | `TRANSPORT_PERSONNEL` | `PersonnelID` | LicenseNo, ExperienceYears | PK is FK→USERS; UQ(LicenseNo) |
 
 ### 9.2 Production and market listing
@@ -313,25 +326,25 @@ Draw each as a single diamond with two lines back to the same entity box, with r
 |---|---|---|---|---|
 | 8 | `CROP_CATEGORY` | `CategoryID` | CategoryName, Description | UQ(CategoryName) |
 | 9 | `CROP` | `CropID` | CropName, CategoryID, Unit, BasePrice, ShelfLifeDays, Description | FK→CROP_CATEGORY; UQ(CropName); CHECK BasePrice > 0 |
-| 10 | `FARM` | `FarmID` | FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status | FK→FARMER; CHECK Area > 0 |
+| 10 | `FARM` | `FarmID` | FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District, Status, verification fields | FK→FARMER, optional verifier→ADMIN_STAFF; CHECK Area and verification status |
 | 11 | `VIRTUAL_ARAT` | `AratID` | AratName, Region, District, Address, ContactNo, **ParentAratID** | **Self-FK**→VIRTUAL_ARAT; CHECK ParentAratID <> AratID |
-| 12 | `HARVEST_BATCH` | `BatchID` | FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, QualityGrade, MoisturePercentage, **MinimumPrice, BiddingStartTime, BiddingEndTime**, Status | FK→FARM, FK→CROP, FK→VIRTUAL_ARAT; CHECK quantities ≥ 0; CHECK Grade in ('A','B','C'); CHECK Moisture 0–100; CHECK BiddingEndTime > BiddingStartTime; CHECK Status in 7 values |
+| 12 | `HARVEST_BATCH` | `BatchID` | FarmID, CropID, AratID, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, **MinimumPrice, BiddingStartTime, BiddingEndTime**, Status | FK→FARM, FK→CROP, FK→VIRTUAL_ARAT; CHECK quantities ≥ 0; CHECK BiddingEndTime > BiddingStartTime; CHECK status |
 
 ### 9.3 Storage
 
 | # | Table | PK | Key columns | Constraints |
 |---|---|---|---|---|
 | 13 | `WAREHOUSE` | `WarehouseID` | WarehouseName, Address, District, Capacity, ManagerID | FK→STORAGE_MANAGER; CHECK Capacity > 0 |
-| 14 | `STORAGE_UNIT` | ✚(WarehouseID, UnitNo) | Capacity, Status | **Weak on WAREHOUSE**; FK→WAREHOUSE ON DELETE CASCADE; CHECK Capacity > 0; CHECK Status in ('EMPTY','PARTIAL','FULL','MAINTENANCE') |
-| 15 | `STORES` | `AllocationID` | BatchID, WarehouseID, UnitNo, ManagerID, QuantityStored, DateIn, DateOut, AllocationStatus | **Ternary**; FK→HARVEST_BATCH, FK→STORAGE_UNIT (composite), FK→STORAGE_MANAGER; UQ(BatchID, WarehouseID, UnitNo, DateIn); CHECK DateOut ≥ DateIn; CHECK QuantityStored > 0 |
+| 14 | `STORAGE_UNIT` | ✚(WarehouseID, UnitNo) | LocationTag, Capacity, Status | **Weak on WAREHOUSE**; FK→WAREHOUSE ON DELETE CASCADE; UQ warehouse/location; status and capacity checks |
+| 15 | `STORES` | `AllocationID` | BatchID, WarehouseID, UnitNo, ManagerID, requester, optional SaleOrderID, quantity/dates, fee snapshot, proposal/counter/release state | **Ternary**; FK→HARVEST_BATCH, FK→STORAGE_UNIT (composite), FK→STORAGE_MANAGER; one farmer/buyer requester; named status and amount checks |
 
 ### 9.4 Bidding, sale and payment
 
 | # | Table | PK | Key columns | Constraints |
 |---|---|---|---|---|
 | 16 | `BID` | `BidID` | BatchID, BuyerID, BidPricePerKg, RequestedQuantity, BidTime, Status, **PreviousBidID** | FK→HARVEST_BATCH, FK→BUYER, **self-FK**→BID; CHECK BidPricePerKg > 0; CHECK RequestedQuantity > 0; CHECK Status in ('ACTIVE','OUTBID','WON','WITHDRAWN'); CHECK PreviousBidID <> BidID |
-| 17 | `SALE_ORDER` | `SaleOrderID` | BidID, AcceptedQuantity, AcceptedPricePerKg, TotalAmount *(virtual)*, OrderDate, Status | **UQ(BidID)** — aggregation result; FK→BID; CHECK AcceptedQuantity > 0; CHECK Status in ('CONFIRMED','IN_TRANSIT','COMPLETED','CANCELLED') |
-| 18 | `PAYMENT` | `PaymentID` | SaleOrderID, BuyerID, FarmerID, Amount, PaymentMethod, PaymentDate, TransactionReference, PaymentStatus | FK→SALE_ORDER, FK→BUYER, FK→FARMER; UQ(TransactionReference); CHECK Amount > 0; CHECK PaymentStatus in ('PENDING','COMPLETED','FAILED','REFUNDED') |
+| 17 | `SALE_ORDER` | `SaleOrderID` | BidID, AcceptedQuantity, AcceptedPricePerKg, TotalAmount *(virtual)*, OrderDate, Status, PaymentTerms, DeliveryPreference | **UQ(BidID)** — aggregation result; FK→BID; named amount, status, terms and delivery checks |
+| 18 | `PAYMENT` | `PaymentID` | PaymentType, optional SaleOrderID/BuyerID/FarmerID or AllocationID, Amount, Method, Date, Reference, Status | Checked SALE/STORAGE shape; FKs to order/parties/allocation; UQ(TransactionReference); amount and status checks |
 
 ### 9.5 Logistics
 
@@ -339,7 +352,7 @@ Draw each as a single diamond with two lines back to the same entity box, with r
 |---|---|---|---|---|
 | 19 | `VEHICLE` | `VehicleID` | VehicleNo, VehicleType, Capacity, Status | UQ(VehicleNo); CHECK Capacity > 0 |
 | 20 | `TRANSPORT_REQUEST` | `TransportID` | SaleOrderID, PickupLocation, DeliveryLocation, RequestDate, DeliveryDate, DeliveryStatus | FK→SALE_ORDER; UQ(SaleOrderID); CHECK DeliveryStatus in ('PENDING','ASSIGNED','PICKED_UP','IN_TRANSIT','DELIVERED','FAILED') |
-| 21 | `ASSIGNED_TO` | `AssignmentID` | TransportID, VehicleID, PersonnelID, AssignedDate, AssignmentStatus | **Ternary**; FK→TRANSPORT_REQUEST, FK→VEHICLE, FK→TRANSPORT_PERSONNEL; UQ(TransportID, VehicleID, PersonnelID) |
+| 21 | `ASSIGNED_TO` | `AssignmentID` | TransportID, VehicleID, PersonnelID, AssignedDate, AssignmentStatus | **Ternary**; FK→TRANSPORT_REQUEST, FK→VEHICLE, FK→TRANSPORT_PERSONNEL; UQ(TransportID, VehicleID) |
 
 ### 9.6 Price reference
 
@@ -349,12 +362,13 @@ Draw each as a single diamond with two lines back to the same entity box, with r
 | 23 | `PHYSICAL_BAZAR` | `BazarID` | BazarName, Address, District, ContactNo | UQ(BazarName, District) |
 | 24 | `BAZAR_DAILY_RECORD` | ✚(BazarID, RecordDate) | CropID, TransactionVolume, Revenue | **Weak on PHYSICAL_BAZAR**; FK→PHYSICAL_BAZAR ON DELETE CASCADE, FK→CROP; CHECK Volume ≥ 0; CHECK Revenue ≥ 0 |
 
-### 9.7 Feedback (P2 — create and seed, no UI)
+### 9.7 Feedback and notification
 
 | # | Table | PK | Key columns | Constraints |
 |---|---|---|---|---|
 | 25 | `REVIEW` | `ReviewID` | SaleOrderID, Rating, Comment, ReviewDate | UQ(SaleOrderID); CHECK Rating 1–5 |
 | 26 | `COMPLAINT` | `ComplaintID` | SaleOrderID, ComplaintType, Description, Status, ResolutionDate, HandledByAdminID | FK→SALE_ORDER, FK→ADMIN_STAFF; CHECK Status in ('OPEN','IN_REVIEW','RESOLVED','REJECTED') |
+| 27 | `NOTIFICATION` | `NotificationID` | UserID, Type, Title, Message, related entity, IsRead, CreatedAt | FK→USERS ON DELETE CASCADE; CHECK IsRead in ('Y','N') |
 
 ### 9.8 Oracle 11gR2 XE — environment constraints
 
@@ -433,14 +447,14 @@ The same Oracle download area also offers **Oracle Database 18c XE**, which remo
 **11g has no `IDENTITY` columns.** Every surrogate PK needs a sequence and a trigger:
 
 ```sql
-CREATE SEQUENCE seq_user_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_users_id START WITH 1001 INCREMENT BY 1 NOCACHE;
 
-CREATE OR REPLACE TRIGGER trg_user_id
+CREATE OR REPLACE TRIGGER trg_users_id
 BEFORE INSERT ON USERS
 FOR EACH ROW
 WHEN (NEW.UserID IS NULL)
 BEGIN
-  SELECT seq_user_id.NEXTVAL INTO :NEW.UserID FROM dual;
+  SELECT seq_users_id.NEXTVAL INTO :NEW.UserID FROM dual;
 END;
 /
 ```
@@ -483,6 +497,8 @@ Each runs on one connection with explicit `COMMIT` on success and `ROLLBACK` in 
 | `V_FARMER_EARNINGS` | Farmer totals: batches sold, quantity, revenue, average price |
 | `V_PRICE_COMPARISON` | Accepted price vs same-day ARAT price vs bazar price vs base price |
 | `V_PENDING_DELIVERY` | Sale orders not yet delivered, with driver and vehicle |
+| `V_ORDER_DETAILS` | Reusable buyer/farmer order, transport, payment and review detail |
+| `V_STORAGE_DETAILS` | Reusable allocation, customer, storage-fee and duration detail |
 
 ---
 
@@ -614,47 +630,53 @@ AND so.SaleOrderID NOT IN (
 
 | Layer | Technology | Responsibility |
 |---|---|---|
-| Client | React.js + React Router + Bootstrap 5 + Axios | Role-based pages, forms, tables, dashboards |
+| Client | React.js + React Router + project CSS | Role-based pages, forms, tables, dashboards |
 | Server | Node.js + Express.js | REST routes, auth, validation, business rules, transaction orchestration |
 | Data access | node-oracledb **(Thick mode)** + Oracle Instant Client 19c | Connection pool, bind variables, commit/rollback. `initOracleClient()` must run before the first connection |
 | Database | Oracle 11gR2 XE (11.2.0.2.0), SID `XE`, port 1521 | Tables, constraints, sequences, triggers, views, PL/SQL |
 | Tools | VS Code, SQL Developer, Postman, Git/GitHub | Development, SQL testing, API testing, versioning |
 
-**Port note:** XE's bundled APEX occupies **port 8080**. Run Express on **5000** and React's dev server on 3000 so nothing collides.
+**Port note:** XE's bundled APEX occupies **port 8080**. Express runs on
+**5000** and Vite on **5173** so nothing collides.
 
 ### 11.2 Project structure
 
 ```
 krishichain/
 ├── client/src/
-│   ├── pages/{public,farmer,buyer,storage,transport,admin}/
-│   ├── components/   (Navbar, Sidebar, DataTable, StatCard, BidPanel)
-│   ├── mock/         (batches.js, bids.js, warehouses.js, ...)  ← swap for api/ later
-│   ├── context/AuthContext.js
-│   └── routes/AppRouter.jsx
-├── server/
-│   ├── routes/ controllers/ services/ repositories/
-│   └── db/pool.js
+│   ├── pages/{farmer,buyer,storage,transport,admin}/
+│   ├── components/
+│   ├── context/AuthContext.jsx
+│   ├── api/client.js
+│   └── App.jsx
+├── server/src/
+│   ├── routes/
+│   ├── services/
+│   ├── middleware/
+│   └── config/db.js
 └── database/
+    ├── 00_reset.sql
     ├── 01_create_tables.sql
-    ├── 02_sequences_triggers.sql
+    ├── 01_schema_automation.sql
+    ├── 02_business_rules.sql
     ├── 03_insert_data.sql
     ├── 04_views.sql
-    └── 05_advanced_queries.sql
+    └── 05_plsql_layer.sql
 ```
 
-### 11.3 Front-end page inventory — 15 of 28 = 54%
+### 11.3 Front-end page inventory — 28 implemented page components
 
-| Module | **Build now (Update-1)** | Defer |
-|---|---|---|
-| Public | Landing, Login, Register (role-select) | Forgot password |
-| Farmer | Dashboard, My Farms, Create Harvest Batch, My Batches + Batch Detail, Bids on My Batch (accept winner) | Payment history, storage request |
-| Buyer | Dashboard, Browse ARAT Listings, Batch Detail + Place Bid, My Bids | My orders, payment, review, complaint |
-| Storage Manager | Warehouse & Units (capacity view), Allocation Requests | Allocation history, unit maintenance |
-| Transport | My Assignments | Delivery status update, vehicle list |
-| Admin | Dashboard (stat cards), Manage Daily Prices | Manage users, crops, ARATs, bazars, complaints, reports |
+| Module | Implemented pages |
+|---|---|
+| Public/shared | Login, role-based registration, profile |
+| Farmer | Dashboard, farms, batches, create batch, batch detail/award, orders, payments, storage requests |
+| Buyer | Dashboard, browse listings, batch detail/bid, my bids, orders, payments, storage, reviews |
+| Storage Manager | Dashboard, warehouses and units, requests and allocations |
+| Transport | Assignment dashboard with claim, pickup, transit and delivery actions |
+| Admin | Dashboard, users, daily prices, complaints and PL/SQL-backed reports |
 
-**Also required:** a role-aware Navbar/Sidebar so every built page is reachable by clicking — the faculty statement explicitly says *"proper navigation among all pages."* Deferred pages should appear in the navigation as visible but disabled "Phase 2" links so the examiner can see the full map.
+The role-aware navigation makes each implemented page reachable while the API
+rechecks authorization on every protected route.
 
 **Narration script:** one page per team member listing, for each screen — what it does, which tables it reads/writes, which FR it satisfies. This is what gets asked during the walkthrough.
 
@@ -668,8 +690,8 @@ krishichain/
 | Data integrity | PK/FK/UNIQUE/CHECK/NOT NULL enforced at database level, not only in JavaScript |
 | Performance | Connection pool created once; FK columns indexed; pagination on all list pages; list queries never select CLOB columns |
 | Reliability | Every multi-table workflow wrapped in an explicit transaction with rollback |
-| Usability | Responsive Bootstrap layout; consistent validation messages; loading/empty/error states on every data table |
-| Maintainability | SQL isolated in `repositories/`; all DDL/DML in version-controlled `.sql` files; demo reproducible from an empty schema |
+| Usability | Responsive layout; consistent validation messages; loading/empty/error states on every data table |
+| Maintainability | SQL kept in service modules; all DDL/DML in version-controlled `.sql` files; demo reproducible from an empty schema |
 
 ---
 
@@ -686,22 +708,24 @@ krishichain/
 
 ---
 
-## 14. Seven-Day Plan to Update-1
+## 14. Original seven-day plan (completed baseline)
 
 | Day | Deliverable |
 |---|---|
 | **0 (do first, ~1 hour)** | **Environment proof.** Confirm XE version and `NLS_CHARACTERSET`; install Instant Client 19c; run a 5-line Node script that connects Thick-mode to `localhost:1521/XE` and selects `SYSDATE`; create the `krishichain` app user; test one virtual column. Nothing else starts until this passes on **every** member's machine |
 | 1 | Redraw ER with the constructs in §7; redraw schema diagram to match |
-| 2 | `01_create_tables.sql` + `02_sequences_triggers.sql` executed clean in SQL Developer |
-| 3 | `03_insert_data.sql` — 5 rows × 24 tables in FK-safe order; React scaffold + auth pages |
+| 2 | `01_create_tables.sql` + `01_schema_automation.sql` executed clean in SQL Developer |
+| 3 | `03_insert_data.sql` — consistent rows across 27 tables in FK-safe order; React scaffold + auth pages |
 | 4 | Advanced queries tested against seed data; farmer module pages |
 | 5 | Buyer + storage + transport pages |
 | 6 | Admin pages, navigation wiring, narration script |
 | 7 | Full dry run, screenshots, fixes, submission pack |
 
-**Seed-data warning.** 24 tables × 5 rows = 120 inserts, and they must be *narratively consistent* — the same 5 farmers, 5 crops, and 5 batches threading through bids, orders, transports and payments. Random data makes Q1–Q7 return empty result sets during the demo, which is the single most common way this presentation goes wrong.
+**Seed-data warning.** The rows must be *narratively consistent* — the same
+farmers, crops and batches thread through bids, orders, transports and
+payments. Random data makes the demonstrations return empty results.
 
-**Insert order:** `USERS → USER_PHONE → FARMER/BUYER/ADMIN_STAFF/STORAGE_MANAGER/TRANSPORT_PERSONNEL → CROP_CATEGORY → CROP → FARM → VIRTUAL_ARAT (parents first, then children) → HARVEST_BATCH → WAREHOUSE → STORAGE_UNIT → STORES → BID (lowest first, so PreviousBidID resolves) → SALE_ORDER → TRANSPORT_REQUEST → VEHICLE → ASSIGNED_TO → PAYMENT → DAILY_MARKET_PRICE → PHYSICAL_BAZAR → BAZAR_DAILY_RECORD → REVIEW → COMPLAINT`
+**Insert order:** `USERS → USER_PHONE → FARMER/BUYER/ADMIN_STAFF/STORAGE_MANAGER/TRANSPORT_PERSONNEL → CROP_CATEGORY → CROP → FARM → VIRTUAL_ARAT (parents first, then children) → HARVEST_BATCH → WAREHOUSE → STORAGE_UNIT → STORES → BID (lowest first, so PreviousBidID resolves) → SALE_ORDER → TRANSPORT_REQUEST → VEHICLE → ASSIGNED_TO → PAYMENT → DAILY_MARKET_PRICE → PHYSICAL_BAZAR → BAZAR_DAILY_RECORD → REVIEW → COMPLAINT → NOTIFICATION`
 
 ---
 
@@ -718,18 +742,18 @@ krishichain/
 | Composite FK from `STORES` to weak `STORAGE_UNIT(WarehouseID, UnitNo)` | Accept it — it's the visible proof the weak entity is real. Only two tables carry it |
 | Seed data too thin for analytics | Give at least 2 crops a 3-month run of daily prices so Q5's `LAG` shows a real trend |
 | Scope creep from Review/Complaint/Bazar | Keep P2 — tables and seed only |
-| Frontend slips because backend isn't ready | Mock data layer decouples them entirely |
+| Frontend/API contract drifts | Keep form fields and route payloads aligned and run the role-based smoke walkthrough |
 
 ---
 
-## 16. Definition of Done for Update-1
+## 16. Definition of Done for the implemented baseline
 
 - [ ] Finalized ER diagram showing: specialization (disjoint, total), aggregation over the bidding relationship, two ternary relationships, two weak entities, two recursive relationships, plus composite / multivalued / derived attributes
 - [ ] Schema diagram matching the ER exactly
-- [ ] All 24 core tables (+2 optional) created with named constraints; script runs clean on an empty schema
+- [ ] All 27 tables created with named constraints; script runs clean on an empty schema
 - [ ] 5 consistent demo rows per table
 - [ ] 5 advanced queries returning non-empty, explainable results
-- [ ] 15 front-end pages reachable through role-based navigation
+- [ ] 28 front-end page components reachable through role-based navigation
 - [ ] Every member can explain the pages and queries they own
 
 ---

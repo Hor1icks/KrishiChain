@@ -360,7 +360,6 @@ export default function Allocations() {
               <th>Farmer</th>
               <th>District</th>
               <th>Harvested</th>
-              <th>Grade</th>
               <th className="num">Total</th>
               <th className="num">Stored</th>
               <th className="num">Unstored</th>
@@ -376,7 +375,6 @@ export default function Allocations() {
                 <td>{b.farmerName}</td>
                 <td>{b.farmDistrict}</td>
                 <td>{date(b.harvestDate)}</td>
-                <td>{b.qualityGrade || '—'}</td>
                 <td className="num">{number(b.totalQuantity)}</td>
                 <td className="num">{number(b.storedQuantity)}</td>
                 <td className="num">
@@ -476,7 +474,7 @@ export default function Allocations() {
                       key={`${u.warehouseId}-${u.unitNo}`}
                       value={`${u.warehouseId}-${u.unitNo}`}
                     >
-                      {u.warehouseName} · unit {u.unitNo} — {number(u.freeSpace)} kg free
+                      {u.warehouseName} · unit {u.unitNo} ({u.locationTag}) — {number(u.freeSpace)} kg free
                     </option>
                   ))}
               </select>
@@ -507,8 +505,9 @@ export default function Allocations() {
 
           {selectedUnit && (
             <p className="note">
-              Unit {selectedUnit.unitNo} holds {number(selectedUnit.currentLoad)} of{' '}
-              {number(selectedUnit.capacity)} kg — {number(selectedUnit.freeSpace)} kg free.
+              Unit {selectedUnit.unitNo}, {selectedUnit.locationTag}, physically holds{' '}
+              {number(selectedUnit.currentLoad)} kg with {number(selectedUnit.incomingLoad)} kg incoming —{' '}
+              {number(selectedUnit.freeSpace)} kg unreserved.
               {estimatedFee !== null && (
                 <>
                   {' '}
@@ -619,7 +618,7 @@ export default function Allocations() {
                     <div className="muted small">{a.customerType.toLowerCase()}</div>
                   </td>
                   <td>{a.warehouseName}</td>
-                  <td className="num">{a.unitNo}</td>
+                  <td>#{a.unitNo} · {a.locationTag}</td>
                   <td className="num">{number(a.quantityStored)}</td>
                   <td>{date(a.dateIn)}</td>
                   <td className="num">{a.dateIn ? number(a.storageDays) : '—'}</td>

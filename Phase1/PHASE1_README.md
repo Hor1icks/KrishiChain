@@ -52,13 +52,18 @@ Finish with the checklist in §3 of the blueprint. Every unticked box is lost ma
 
 ---
 
-## Two decisions still open
+## Decisions resolved in the current build
 
-1. **Is `PHYSICAL_BAZAR` in scope?** It currently only feeds the price-comparison report. It also carries one of your two weak entities, so removing it costs you a graded construct. Recommend keeping it.
-2. **BR-20 payment timing** — the design assumes payment happens *after* delivery. If you want payment on order confirmation, say so before the DDL is written; it changes the transaction boundary in PRD §9.10.
+1. **`PHYSICAL_BAZAR` remains in scope.** It supports price comparison and owns
+   the weak `BAZAR_DAILY_RECORD` entity.
+2. **BR-20 follows delivery preference.** `ON_DELIVERY` payment waits for a
+   delivered transport; `ADVANCE` payment may happen earlier.
 
 ---
 
-## Next: Phase 2
+## Implemented after Phase 1
 
-`01_create_tables.sql` and `02_sequences_triggers.sql`, written together so every table gets its matching sequence-trigger pair with consistent naming. Blocked until the ER above is approved — the DDL has to match the diagram you show the faculty.
+`database/01_create_tables.sql` implements the approved model.
+`database/01_schema_automation.sql` adds the matching Week-11 sequences and
+ordinary indexes; `database/02_trigger_layer.sql` contains the 9 varied
+triggers. See `UPDATE3.md` for the current build order and demonstration.

@@ -28,6 +28,13 @@ DROP TABLE USER_PHONE           CASCADE CONSTRAINTS PURGE;
 DROP TABLE USERS                CASCADE CONSTRAINTS PURGE;
 
 BEGIN
+  FOR s IN (SELECT sequence_name FROM user_sequences) LOOP
+    EXECUTE IMMEDIATE 'DROP SEQUENCE ' || s.sequence_name;
+  END LOOP;
+END;
+/
+
+BEGIN
   FOR t IN (SELECT type_name FROM user_types) LOOP
     EXECUTE IMMEDIATE 'DROP TYPE ' || t.type_name || ' FORCE';
   END LOOP;

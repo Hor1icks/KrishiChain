@@ -78,6 +78,21 @@ router.patch('/warehouses/:warehouseId/units/:unitNo/maintenance', async (req, r
   }
 });
 
+router.patch('/warehouses/:warehouseId/units/:unitNo/location', async (req, res, next) => {
+  try {
+    res.json(
+      await storage.setUnitLocation(
+        me(req),
+        param.id(req.params.warehouseId, 'warehouseId'),
+        param.id(req.params.unitNo, 'unitNo'),
+        req.body.locationTag
+      )
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/awaiting/leg1', async (_req, res, next) => {
   try {
     res.json(await storage.listBatchesAwaitingStorage());

@@ -306,7 +306,7 @@ PROMPT
 PROMPT #####################################################################
 PROMPT # 9. PAYMENTS  (BR-19 and the flexible BR-20)
 PROMPT # Order 5 shows 0 paid ON PURPOSE: its terms are ON_DELIVERY and
-PROMPT # it has not been delivered, so trg_payment_biz_rules would
+PROMPT # it has not been delivered, so pkg_krishi_rules would
 PROMPT # reject a payment. Order 4 shows two instalments.
 PROMPT #####################################################################
 PROMPT

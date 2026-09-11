@@ -7,7 +7,7 @@ export default function CreateBatch() {
   const [farms, setFarms] = useState([]);
   const [crops, setCrops] = useState([]);
   const [arats, setArats] = useState([]);
-  const [form, setForm] = useState({ qualityGrade: 'A' });
+  const [form, setForm] = useState({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -39,6 +39,14 @@ export default function CreateBatch() {
     form.totalQuantity !== '' &&
     form.totalQuantity !== undefined
       ? Number(form.minimumBidQuantity) > Number(form.totalQuantity)
+      : false;
+
+  const hasBiddingStart = Boolean(form.biddingStartTime);
+  const hasBiddingEnd = Boolean(form.biddingEndTime);
+  const incompleteBiddingWindow = hasBiddingStart !== hasBiddingEnd;
+  const invalidBiddingWindow =
+    hasBiddingStart && hasBiddingEnd
+      ? new Date(form.biddingEndTime) <= new Date(form.biddingStartTime)
       : false;
 
   async function submit(event) {
@@ -135,25 +143,6 @@ export default function CreateBatch() {
                   required
                 />
               </label>
-              <label>
-                Quality grade
-                <select value={form.qualityGrade} onChange={set('qualityGrade')}>
-                  <option value="A">A</option>
-                  <option value="B">B</option>
-                  <option value="C">C</option>
-                </select>
-              </label>
-              <label>
-                Moisture %
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max="100"
-                  value={form.moisturePercentage || ''}
-                  onChange={set('moisturePercentage')}
-                />
-              </label>
             </div>
           </fieldset>
 
@@ -165,7 +154,7 @@ export default function CreateBatch() {
                 <input
                   type="number"
                   step="0.01"
-                  min="0.01"
+                  min={selectedCrop?.basePrice || '0.01'}
                   value={form.minimumPrice || ''}
                   onChange={set('minimumPrice')}
                   required
@@ -200,6 +189,13 @@ export default function CreateBatch() {
               </label>
             </div>
 
+            {selectedCrop && (
+              <p className="note">
+                <strong>{selectedCrop.cropName} base price:</strong>{' '}
+                ৳{selectedCrop.basePrice} per {selectedCrop.unit}. Your minimum price must be at
+                least this amount.
+              </p>
+            )}
             {belowBase && (
               <p className="error">
                 {selectedCrop.cropName}&rsquo;s base price is ৳{selectedCrop.basePrice}. You
@@ -211,6 +207,14 @@ export default function CreateBatch() {
                 Minimum bid quantity cannot exceed the total quantity ({form.totalQuantity} kg).
               </p>
             )}
+            {incompleteBiddingWindow && (
+              <p className="error">
+                Enter both bidding dates, or leave both empty to save this as a draft.
+              </p>
+            )}
+            {invalidBiddingWindow && (
+              <p className="error">Bidding must close after it opens.</p>
+            )}
             <p className="note">
               No bid below the minimum bid quantity will be accepted. Leave the bidding times
               empty to save the batch as a draft — you can open bidding later.
@@ -219,7 +223,12 @@ export default function CreateBatch() {
 
           {error && <p className="error">{error}</p>}
 
-          <button type="submit" disabled={busy || belowBase || minQtyOverTotal}>
+          <button
+            type="submit"
+            disabled={
+              busy || belowBase || minQtyOverTotal || incompleteBiddingWindow || invalidBiddingWindow
+            }
+          >
             {busy ? 'Creating…' : 'Create batch'}
           </button>
         </form>

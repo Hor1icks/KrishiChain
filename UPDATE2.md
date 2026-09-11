@@ -4,14 +4,18 @@ Every item below is reachable from the running application: a form writes
 to the database, a query reads it back, the page shows the result. Nothing
 is labelled on screen; this file is the map.
 
+This document is retained as the Update-2 technique map. On the `update3`
+branch, Week-11 sequences, triggers and indexes were added without removing
+these features; see `UPDATE3.md` for that addition.
+
 Start the system with `./start.sh`, then sign in. All seeded accounts use
 the password `Demo@1234`.
 
 | # | Technique | In the database | Reached from |
 |---|---|---|---|
 | 1 | Function | `pkg_krishi_metrics` — 5 functions | Farmer dashboard, buyer payments, warehouses, batch detail, allocations |
-| 2 | Subquery | Correlated subqueries throughout; key generation in all 15 inserts | Any page that creates something |
-| 3 | View | 6 views | Profile, batch listings, warehouses, bidding, farmer earnings, admin dashboard |
+| 2 | Subquery | Correlated subqueries in views, dashboards and reports | Listings, dashboards and reports |
+| 3 | View | 8 views | Profile, listings, bidding, earnings, orders, storage and admin dashboard |
 | 4 | Abstract datatype | `t_address` object with `full_text()` / `short_text()` | Profile page |
 | 5 | PL/SQL | 3 packages, 7 procedures, 5 functions | Admin → Reports |
 | 6 | Cursor | `SYS_REFCURSOR` from all 6 report procedures | Admin → Reports |
@@ -28,14 +32,15 @@ read-only, in the same order.
 on the dashboard is `pkg_krishi_metrics.fn_farmer_revenue`, computed in
 Oracle, not summed in JavaScript.
 
-**2. Subquery.** Place a bid as `tanvir.hossain@krishichain.bd` from Browse
-Listings. The new `BidID` comes from a scalar subquery inside the insert —
-11g has no `IDENTITY`, so the row derives its own key:
+**2. Subquery.** Open Browse Listings or a batch detail page. The listing
+views use correlated subqueries to calculate bid counts and the current
+highest bid. Runtime key generation moved to the Week-11 sequence/trigger
+implementation documented in `UPDATE3.md`.
 
 ```sql
-INSERT INTO BID (BidID, BatchID, ...)
-VALUES ((SELECT NVL(MAX(BidID), 0) + 1 FROM BID), :batchId, ...)
-RETURNING BidID INTO :bidId;
+SELECT COUNT(*)
+FROM BID b
+WHERE b.BatchID = hb.BatchID;
 ```
 
 **3. View.** Sign in as `farhana.yasmin@krishichain.bd`. "Still in transit"
@@ -59,12 +64,11 @@ screen. Trying to pay an `ON_DELIVERY` order before it is delivered raises
 
 ## What changed from Update-1
 
-**No sequences, no triggers, no hand-written indexes.** Surrogate keys come
-from the subquery shown above. The four business-rule triggers became
-`pkg_krishi_rules`, called from the service layer inside the same
-transaction; they raise the same error numbers, so nothing downstream
-changed. The only indexes left are the ones Oracle creates for `PRIMARY
-KEY` and `UNIQUE`.
+Update-2 moved cross-table business rules into `pkg_krishi_rules`, called
+from the service layer inside the same transaction. They raise the same
+application error numbers, so nothing downstream changed. Update-3 retains
+that design: its triggers only assign surrogate keys, while business rules
+remain explicit and easy to demonstrate in the package.
 
 BR-19 is simpler as a procedure than it was as a trigger. Summing `PAYMENT`
 from a row trigger on `PAYMENT` raises `ORA-04091: table is mutating`, which
@@ -89,6 +93,7 @@ gateway's validation API — the redirect body itself is never trusted.
 The `NOTIFICATION` table and its seed rows exist; nothing is wired to them
 yet, pending a decision on which events are worth notifying about.
 
-**Build chain.** `00_reset` → `01_create_tables` → `02_business_rules` →
-`03_insert_data` → `04_views` → `05_plsql_layer`. `06_advanced_queries` and
-`07_update2_demo` are read-only.
+**Build chain on Update-3.** `00_reset` → `01_create_tables` →
+`01_schema_automation` → `02_business_rules` → `03_insert_data` → `04_views`
+→ `05_plsql_layer`. `06_advanced_queries`, `07_update2_demo`, and
+`08_update3_demo` are demonstrations rather than build steps.

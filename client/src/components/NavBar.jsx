@@ -26,6 +26,7 @@ const NAV = {
     { to: '/admin', label: 'Dashboard', end: true },
     { to: '/admin/prices', label: 'Daily Prices' },
     { to: '/admin/users', label: 'Manage Users' },
+    { to: '/admin/farm-verifications', label: 'Farm Verification' },
     { to: '/admin/complaints', label: 'Complaints' },
     { to: '/admin/reports', label: 'Reports' },
   ],

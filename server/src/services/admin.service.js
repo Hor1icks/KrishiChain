@@ -85,6 +85,7 @@ async function getDashboard() {
        (SELECT NVL(SUM(Amount), 0) FROM PAYMENT
          WHERE PaymentStatus IN ('PENDING','COMPLETED'))               AS "amountPaid",
        (SELECT COUNT(*) FROM COMPLAINT WHERE Status IN ('OPEN','IN_REVIEW')) AS "openComplaints",
+       (SELECT COUNT(*) FROM FARM WHERE VerificationStatus = 'PENDING') AS "pendingFarmVerifications",
        (SELECT COUNT(*) FROM TRANSPORT_REQUEST WHERE DeliveryStatus <> 'DELIVERED') AS "undelivered",
        (SELECT COUNT(*) FROM DAILY_MARKET_PRICE WHERE PriceDate = TRUNC(SYSDATE)) AS "pricesLoggedToday"
      FROM dual`
@@ -323,6 +324,63 @@ async function updateComplaint(adminId, complaintId, status) {
   });
 }
 
+const FARM_VERIFICATION_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED'];
+
+async function listFarmVerifications(filters = {}) {
+  const status = String(filters.status || 'PENDING').toUpperCase();
+  if (!FARM_VERIFICATION_STATUSES.includes(status)) {
+    throw ApiError.badRequest(`Status must be one of: ${FARM_VERIFICATION_STATUSES.join(', ')}.`);
+  }
+
+  const result = await query(
+    `SELECT f.FarmID AS "farmId", f.FarmName AS "farmName", f.Area AS "area",
+            f.Location AS "location", f.District AS "district",
+            f.VerificationStatus AS "verificationStatus",
+            f.VerificationRequestedAt AS "verificationRequestedAt",
+            f.VerificationReviewedAt AS "verificationReviewedAt",
+            u.UserID AS "farmerId", u.FirstName || ' ' || u.LastName AS "farmerName",
+            u.Email AS "farmerEmail", fr.NID AS "nid",
+            (SELECT COUNT(*) FROM HARVEST_BATCH hb WHERE hb.FarmID = f.FarmID) AS "batchCount",
+            reviewer.FirstName || ' ' || reviewer.LastName AS "reviewedBy"
+       FROM FARM f
+       JOIN FARMER fr ON fr.FarmerID = f.FarmerID
+       JOIN USERS u ON u.UserID = f.FarmerID
+       LEFT JOIN USERS reviewer ON reviewer.UserID = f.VerifiedByAdminID
+      WHERE f.VerificationStatus = :status
+      ORDER BY f.VerificationRequestedAt, f.FarmID`,
+    { status }
+  );
+  return result.rows;
+}
+
+async function reviewFarmVerification(adminId, farmId, decision) {
+  const status = String(decision || '').toUpperCase();
+  if (!['VERIFIED', 'REJECTED'].includes(status)) {
+    throw ApiError.badRequest('decision must be VERIFIED or REJECTED.');
+  }
+
+  return withTransaction(async (connection) => {
+    const current = await connection.execute(
+      `SELECT VerificationStatus FROM FARM WHERE FarmID = :farmId FOR UPDATE`,
+      { farmId }
+    );
+    if (!current.rows.length) throw ApiError.notFound('No such farm.');
+    if (current.rows[0].VERIFICATIONSTATUS !== 'PENDING') {
+      throw ApiError.businessRule('Only a pending farm can be reviewed.');
+    }
+
+    await connection.execute(
+      `UPDATE FARM
+          SET VerificationStatus = :status,
+              VerificationReviewedAt = TRUNC(SYSDATE),
+              VerifiedByAdminID = :adminId
+        WHERE FarmID = :farmId`,
+      { status, adminId, farmId }
+    );
+    return { farmId, verificationStatus: status };
+  });
+}
+
 module.exports = {
   getDashboard,
   listUsers,
@@ -330,6 +388,8 @@ module.exports = {
   logDailyPrice,
   listComplaints,
   updateComplaint,
+  listFarmVerifications,
+  reviewFarmVerification,
   listReports,
   runReport,
 };

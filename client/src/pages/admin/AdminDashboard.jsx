@@ -41,6 +41,11 @@ export default function AdminDashboard() {
           value={number(s.openComplaints)}
           tone={s.openComplaints ? 'warn' : undefined}
         />
+        <Stat
+          label="Farms awaiting verification"
+          value={number(s.pendingFarmVerifications)}
+          tone={s.pendingFarmVerifications ? 'warn' : undefined}
+        />
         <Stat label="Prices logged today" value={number(s.pricesLoggedToday)} />
       </div>
 
@@ -176,6 +181,8 @@ export default function AdminDashboard() {
       </table>
 
       <p className="muted" style={{ marginTop: '1.5rem' }}>
+        <Link to="/admin/farm-verifications">Review the farm verification queue →</Link>
+        {' · '}
         <Link to="/admin/prices">Log today's market prices →</Link>
       </p>
     </div>

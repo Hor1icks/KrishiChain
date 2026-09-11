@@ -29,7 +29,10 @@ const ROLE_FIELDS = {
     { name: 'employeeId', label: 'Employee ID', required: true },
     { name: 'designation', label: 'Designation' },
   ],
-  STORAGE_MANAGER: [{ name: 'employeeId', label: 'Employee ID', required: true }],
+  STORAGE_MANAGER: [
+    { name: 'designation', label: 'Designation', required: true },
+    { name: 'shiftSchedule', label: 'Shift', options: ['DAY', 'NIGHT', 'ROTATING'] },
+  ],
   TRANSPORT_PERSONNEL: [
     { name: 'licenseNo', label: 'Driving licence no.', required: true },
     { name: 'experienceYears', label: 'Years of experience', type: 'number' },

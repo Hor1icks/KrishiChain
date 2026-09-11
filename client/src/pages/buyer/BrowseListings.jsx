@@ -82,7 +82,7 @@ export default function BrowseListings() {
               <th>Farmer</th>
               <th>ARAT</th>
               <th>Harvested</th>
-              <th>Grade</th>
+              <th>Farm verification</th>
               <th className="num">Available</th>
               <th className="num">Minimum</th>
               <th className="num">Standing bid</th>
@@ -111,7 +111,7 @@ export default function BrowseListings() {
                 <td>{b.farmerName}</td>
                 <td>{b.aratName}</td>
                 <td>{date(b.harvestDate)}</td>
-                <td>{b.qualityGrade || '—'}</td>
+                <td>{b.farmVerificationStatus === 'VERIFIED' ? '✓ Ministry verified' : 'Pending'}</td>
                 <td className="num">{number(b.availableQuantity)} kg</td>
                 <td className="num">{b.minimumPrice}</td>
                 <td className="num">

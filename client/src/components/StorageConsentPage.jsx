@@ -264,7 +264,7 @@ export default function StorageConsentPage({ base, title, intro, legNote }) {
                           act(
                             respondPath,
                             { decision: 'ACCEPT' },
-                            `Allocation #${p.allocationId} accepted at ${settledRate}/kg — the batch is now in storage and the clock has started.`
+                            `Allocation #${p.allocationId} accepted at ${settledRate}/kg — transport is now waiting for a driver. Storage starts only after arrival.`
                           )
                         }
                       >
@@ -436,7 +436,7 @@ export default function StorageConsentPage({ base, title, intro, legNote }) {
                           key={`${u.warehouseId}-${u.unitNo}`}
                           value={`${u.warehouseId}-${u.unitNo}`}
                         >
-                          Unit {u.unitNo} — {number(u.freeSpace)} kg free
+                          Unit {u.unitNo} · {u.locationTag} — {number(u.freeSpace)} kg free
                         </option>
                       ))}
                   </select>
@@ -504,7 +504,7 @@ export default function StorageConsentPage({ base, title, intro, legNote }) {
         </form>
       )}
 
-      <h2>In storage</h2>
+      <h2>Storage allocations</h2>
       <p className="note" style={{ borderTop: 'none', marginTop: 0, paddingTop: 0 }}>
         {legNote}
       </p>
@@ -518,7 +518,7 @@ export default function StorageConsentPage({ base, title, intro, legNote }) {
               <th>Batch</th>
               <th>Crop</th>
               <th>Warehouse</th>
-              <th className="num">Unit</th>
+              <th>Unit location</th>
               <th className="num">Quantity</th>
               <th>In</th>
               <th>Free to release</th>
@@ -538,7 +538,7 @@ export default function StorageConsentPage({ base, title, intro, legNote }) {
                   <td>#{h.batchId}</td>
                   <td>{h.cropName}</td>
                   <td>{h.warehouseName}</td>
-                  <td className="num">{h.unitNo}</td>
+                  <td>#{h.unitNo} · {h.locationTag}</td>
                   <td className="num">{number(h.quantityStored)} kg</td>
                   <td>{date(h.dateIn)}</td>
                   <td>{date(h.minimumReleaseDate)}</td>

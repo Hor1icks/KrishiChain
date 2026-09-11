@@ -36,10 +36,9 @@ const SUBCLASS = {
   STORAGE_MANAGER: {
     table: 'STORAGE_MANAGER',
     pk: 'ManagerID',
-    columns: ['EmployeeID', 'Designation', 'HireDate', 'ShiftSchedule', 'CertificationNo'],
-    fields: ['employeeId', 'designation', 'hireDate', 'shiftSchedule', 'certificationNo'],
-    required: ['employeeId', 'designation', 'hireDate'],
-    dateColumns: ['HireDate'],
+    columns: ['Designation', 'ShiftSchedule'],
+    fields: ['designation', 'shiftSchedule'],
+    required: ['designation'],
   },
   TRANSPORT_PERSONNEL: {
     table: 'TRANSPORT_PERSONNEL',
@@ -82,7 +81,7 @@ function translateOracleError(err) {
   if (message.includes('UQ_PERSONNEL_LICENSE')) {
     return ApiError.conflict('That driving licence number is already registered.');
   }
-  if (message.includes('UQ_ADMIN_EMPLOYEEID') || message.includes('UQ_MANAGER_EMPLOYEEID')) {
+  if (message.includes('UQ_ADMIN_EMPLOYEEID')) {
     return ApiError.conflict('That employee ID is already registered.');
   }
   if (message.includes('CK_USERS_GENDER')) {
@@ -155,11 +154,9 @@ async function register(payload, { allowStaffRoles = false } = {}) {
     return await withTransaction(async (connection) => {
       const userResult = await connection.execute(
         `INSERT INTO USERS (
-           UserID,
            FirstName, MiddleName, LastName, Email, PasswordHash, Gender,
            DateOfBirth, Address, Role
          ) VALUES (
-           (SELECT NVL(MAX(UserID), 0) + 1 FROM USERS),
            :firstName, :middleName, :lastName, :email, :passwordHash, :gender,
            TO_DATE(:dateOfBirth, 'YYYY-MM-DD'),
            t_address(:houseNo, :road, :village, :upazila, :district, :postalCode),

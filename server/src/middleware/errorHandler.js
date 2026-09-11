@@ -18,9 +18,9 @@ const CONSTRAINT_TEXT = {
   UQ_USERS_EMAIL: 'That email address is already registered.',
   UQ_ORDER_BID: 'That bid already has a sale order.',
   UQ_TRANSPORT_ORDER: 'That order already has a transport request.',
-  UQ_ASSIGNED_TRIPLE: 'That vehicle and driver are already on this trip.',
+  UQ_ASSIGNED_VEHICLE: 'That vehicle is already assigned to this trip.',
   UQ_PAYMENT_REFERENCE: 'That transaction reference has already been used.',
-  UQ_MANAGER_CERT: 'That certification number is already registered.',
+  UQ_UNIT_LOCATION: 'That storage-unit location is already used in this warehouse.',
 };
 
 function constraintName(message) {

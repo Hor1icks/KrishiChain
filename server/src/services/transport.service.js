@@ -9,14 +9,19 @@ const ADVANCEABLE = { ASSIGNED: 'PICKED_UP', PICKED_UP: 'IN_TRANSIT' };
 
 async function loadTrip(connection, transportId) {
   const result = await connection.execute(
-    `SELECT tr.TransportID, tr.SaleOrderID, tr.DeliveryStatus, tr.DeliveryDate,
+    `SELECT tr.TransportID, tr.RequestType, tr.SaleOrderID, tr.AllocationID,
+            tr.DeliveryStatus, tr.DeliveryDate,
             so.Status AS OrderStatus, so.PaymentTerms, so.TotalAmount,
             so.DeliveryPreference,
-            b.BuyerID, f.FarmerID
+            CASE WHEN tr.RequestType = 'STORAGE_INBOUND' THEN s.QuantityStored
+                 ELSE so.AcceptedQuantity END AS Quantity,
+            NVL(b.BuyerID, s.RequestedByBuyerID) AS BuyerID,
+            f.FarmerID, s.AllocationStatus
        FROM TRANSPORT_REQUEST tr
-       JOIN SALE_ORDER so    ON so.SaleOrderID = tr.SaleOrderID
-       JOIN BID b            ON b.BidID        = so.BidID
-       JOIN HARVEST_BATCH hb ON hb.BatchID     = b.BatchID
+       LEFT JOIN SALE_ORDER so ON so.SaleOrderID = tr.SaleOrderID
+       LEFT JOIN BID b         ON b.BidID        = so.BidID
+       LEFT JOIN STORES s      ON s.AllocationID = tr.AllocationID
+       JOIN HARVEST_BATCH hb ON hb.BatchID = NVL(s.BatchID, b.BatchID)
        JOIN FARM f           ON f.FarmID       = hb.FarmID
       WHERE tr.TransportID = :transportId
         FOR UPDATE OF tr.DeliveryStatus`,
@@ -59,36 +64,43 @@ async function assignedCapacity(connection, transportId) {
 async function listOpenRequests() {
   const result = await query(
     `SELECT tr.TransportID      AS "transportId",
+            tr.RequestType      AS "requestType",
             tr.SaleOrderID      AS "saleOrderId",
+            tr.AllocationID     AS "allocationId",
             tr.PickupLocation   AS "pickupLocation",
             tr.DeliveryLocation AS "deliveryLocation",
             tr.RequestDate      AS "requestDate",
             tr.DeliveryStatus   AS "deliveryStatus",
             c.CropName          AS "cropName",
-            so.AcceptedQuantity AS "quantity",
+            CASE WHEN tr.RequestType = 'STORAGE_INBOUND' THEN s.QuantityStored
+                 ELSE so.AcceptedQuantity END AS "quantity",
             NVL((SELECT SUM(v.Capacity) FROM ASSIGNED_TO a
                    JOIN VEHICLE v ON v.VehicleID = a.VehicleID
                   WHERE a.TransportID = tr.TransportID
                     AND a.AssignmentStatus = 'ACTIVE'), 0) AS "assignedCapacity",
-            so.TotalAmount      AS "totalAmount",
+            NVL(so.TotalAmount, 0) AS "totalAmount",
             so.PaymentTerms     AS "paymentTerms",
             uf.FirstName || ' ' || uf.LastName AS "farmerName",
             NVL(byr.BusinessName, ub.FirstName || ' ' || ub.LastName) AS "buyerName"
        FROM TRANSPORT_REQUEST tr
-       JOIN SALE_ORDER so    ON so.SaleOrderID = tr.SaleOrderID
-       JOIN BID b            ON b.BidID        = so.BidID
-       JOIN HARVEST_BATCH hb ON hb.BatchID     = b.BatchID
+       LEFT JOIN SALE_ORDER so ON so.SaleOrderID = tr.SaleOrderID
+       LEFT JOIN BID b         ON b.BidID        = so.BidID
+       LEFT JOIN STORES s      ON s.AllocationID = tr.AllocationID
+       JOIN HARVEST_BATCH hb ON hb.BatchID = NVL(s.BatchID, b.BatchID)
        JOIN CROP c           ON c.CropID       = hb.CropID
        JOIN FARM f           ON f.FarmID       = hb.FarmID
        JOIN USERS uf         ON uf.UserID      = f.FarmerID
-       JOIN BUYER byr        ON byr.BuyerID    = b.BuyerID
-       JOIN USERS ub         ON ub.UserID      = byr.BuyerID
+       LEFT JOIN BUYER byr ON byr.BuyerID = NVL(b.BuyerID, s.RequestedByBuyerID)
+       LEFT JOIN USERS ub  ON ub.UserID   = byr.BuyerID
       WHERE tr.DeliveryStatus = 'PENDING'
-        AND so.DeliveryPreference IN ('DIRECT', 'VIA_STORAGE')
+        AND (tr.RequestType = 'STORAGE_INBOUND'
+             OR so.DeliveryPreference IN ('DIRECT', 'VIA_STORAGE'))
         AND NVL((SELECT SUM(v.Capacity) FROM ASSIGNED_TO a
                    JOIN VEHICLE v ON v.VehicleID = a.VehicleID
                   WHERE a.TransportID = tr.TransportID
-                    AND a.AssignmentStatus = 'ACTIVE'), 0) < so.AcceptedQuantity
+                    AND a.AssignmentStatus = 'ACTIVE'), 0) <
+            CASE WHEN tr.RequestType = 'STORAGE_INBOUND' THEN s.QuantityStored
+                 ELSE so.AcceptedQuantity END
       ORDER BY tr.RequestDate, tr.TransportID`
   );
   return result.rows;
@@ -114,7 +126,9 @@ async function listMyAssignments(personnelId) {
             a.AssignedDate     AS "assignedDate",
             a.AssignmentStatus AS "assignmentStatus",
             tr.TransportID     AS "transportId",
+            tr.RequestType     AS "requestType",
             tr.SaleOrderID     AS "saleOrderId",
+            tr.AllocationID    AS "allocationId",
             tr.PickupLocation  AS "pickupLocation",
             tr.DeliveryLocation AS "deliveryLocation",
             tr.DeliveryStatus  AS "deliveryStatus",
@@ -122,8 +136,9 @@ async function listMyAssignments(personnelId) {
             v.VehicleNo        AS "vehicleNo",
             v.Capacity         AS "vehicleCapacity",
             c.CropName         AS "cropName",
-            so.AcceptedQuantity AS "quantity",
-            so.TotalAmount     AS "totalAmount",
+            CASE WHEN tr.RequestType = 'STORAGE_INBOUND' THEN s.QuantityStored
+                 ELSE so.AcceptedQuantity END AS "quantity",
+            NVL(so.TotalAmount, 0) AS "totalAmount",
             so.PaymentTerms    AS "paymentTerms",
             so.Status          AS "orderStatus",
             uf.FirstName || ' ' || uf.LastName AS "farmerName",
@@ -147,14 +162,15 @@ async function listMyAssignments(personnelId) {
        FROM ASSIGNED_TO a
        JOIN TRANSPORT_REQUEST tr ON tr.TransportID = a.TransportID
        JOIN VEHICLE v        ON v.VehicleID    = a.VehicleID
-       JOIN SALE_ORDER so    ON so.SaleOrderID = tr.SaleOrderID
-       JOIN BID b            ON b.BidID        = so.BidID
-       JOIN HARVEST_BATCH hb ON hb.BatchID     = b.BatchID
+       LEFT JOIN SALE_ORDER so ON so.SaleOrderID = tr.SaleOrderID
+       LEFT JOIN BID b         ON b.BidID        = so.BidID
+       LEFT JOIN STORES s      ON s.AllocationID = tr.AllocationID
+       JOIN HARVEST_BATCH hb ON hb.BatchID = NVL(s.BatchID, b.BatchID)
        JOIN CROP c           ON c.CropID       = hb.CropID
        JOIN FARM f           ON f.FarmID       = hb.FarmID
        JOIN USERS uf         ON uf.UserID      = f.FarmerID
-       JOIN BUYER byr        ON byr.BuyerID    = b.BuyerID
-       JOIN USERS ub         ON ub.UserID      = byr.BuyerID
+       LEFT JOIN BUYER byr ON byr.BuyerID = NVL(b.BuyerID, s.RequestedByBuyerID)
+       LEFT JOIN USERS ub  ON ub.UserID   = byr.BuyerID
       WHERE a.PersonnelID = :personnelId
       ORDER BY a.AssignmentID DESC`,
     { personnelId }
@@ -175,10 +191,12 @@ async function getSummary(personnelId) {
        (SELECT COUNT(*) FROM ASSIGNED_TO a
          WHERE a.PersonnelID = :personnelId AND a.AssignmentStatus = 'COMPLETED') AS "completedTrips",
        (SELECT COUNT(*) FROM VEHICLE WHERE Status = 'AVAILABLE') AS "vehiclesAvailable",
-       (SELECT NVL(SUM(so.AcceptedQuantity), 0)
+       (SELECT NVL(SUM(CASE WHEN tr.RequestType = 'STORAGE_INBOUND' THEN s.QuantityStored
+                            ELSE so.AcceptedQuantity END), 0)
           FROM ASSIGNED_TO a
           JOIN TRANSPORT_REQUEST tr ON tr.TransportID = a.TransportID
-          JOIN SALE_ORDER so ON so.SaleOrderID = tr.SaleOrderID
+          LEFT JOIN SALE_ORDER so ON so.SaleOrderID = tr.SaleOrderID
+          LEFT JOIN STORES s ON s.AllocationID = tr.AllocationID
          WHERE a.PersonnelID = :personnelId AND a.AssignmentStatus = 'COMPLETED') AS "kgDelivered"
      FROM dual`,
     { personnelId }
@@ -201,17 +219,16 @@ async function claim(personnelId, payload) {
         `Transport #${transportId} is already ${trip.DELIVERYSTATUS} — nothing to claim.`
       );
     }
-    if (!['DIRECT', 'VIA_STORAGE'].includes(trip.DELIVERYPREFERENCE)) {
+    if (trip.REQUESTTYPE === 'SALE_DELIVERY' && !['DIRECT', 'VIA_STORAGE'].includes(trip.DELIVERYPREFERENCE)) {
       throw ApiError.businessRule(
         `The buyer has not settled where order #${trip.SALEORDERID} is going yet — ` +
           `it needs a direct-delivery choice or an accepted storage allocation first.`
       );
     }
-    const load = await connection.execute(
-      `SELECT AcceptedQuantity FROM SALE_ORDER WHERE SaleOrderID = :saleOrderId`,
-      { saleOrderId: trip.SALEORDERID }
-    );
-    const quantity = load.rows[0].ACCEPTEDQUANTITY;
+    if (trip.REQUESTTYPE === 'STORAGE_INBOUND' && trip.ALLOCATIONSTATUS !== 'IN_TRANSIT') {
+      throw ApiError.businessRule('This storage allocation is not awaiting delivery.');
+    }
+    const quantity = trip.QUANTITY;
     const alreadyAssigned = await assignedCapacity(connection, transportId);
 
     const holder = await tripHolder(connection, transportId);
@@ -243,7 +260,7 @@ async function claim(personnelId, payload) {
 
     const assignment = await connection.execute(
       `INSERT INTO ASSIGNED_TO (AssignmentID, TransportID, VehicleID, PersonnelID, AssignmentStatus)
-       VALUES ((SELECT NVL(MAX(AssignmentID), 0) + 1 FROM ASSIGNED_TO), :transportId, :vehicleId, :personnelId, 'ACTIVE')
+       VALUES (seq_assigned_to_id.NEXTVAL, :transportId, :vehicleId, :personnelId, 'ACTIVE')
        RETURNING AssignmentID INTO :assignmentId`,
       {
         transportId,
@@ -300,7 +317,7 @@ async function advance(personnelId, transportId) {
       { next, transportId }
     );
 
-    if (next === 'IN_TRANSIT') {
+    if (next === 'IN_TRANSIT' && trip.REQUESTTYPE === 'SALE_DELIVERY') {
       await connection.execute(
         `UPDATE SALE_ORDER SET Status = 'IN_TRANSIT'
           WHERE SaleOrderID = :saleOrderId AND Status = 'CONFIRMED'`,
@@ -310,6 +327,81 @@ async function advance(personnelId, transportId) {
 
     return { transportId, deliveryStatus: next };
   });
+}
+
+async function finishAssignments(connection, transportId) {
+  await connection.execute(
+    `UPDATE VEHICLE SET Status = 'AVAILABLE'
+      WHERE VehicleID IN (SELECT VehicleID FROM ASSIGNED_TO
+                           WHERE TransportID = :transportId
+                             AND AssignmentStatus = 'ACTIVE')`,
+    { transportId }
+  );
+  await connection.execute(
+    `UPDATE ASSIGNED_TO SET AssignmentStatus = 'COMPLETED'
+      WHERE TransportID = :transportId AND AssignmentStatus = 'ACTIVE'`,
+    { transportId }
+  );
+}
+
+async function completeStorageInbound(connection, trip, transportId) {
+  const allocation = await connection.execute(
+    `SELECT s.BatchID, s.SaleOrderID, s.WarehouseID, s.UnitNo, s.AllocationStatus,
+            su.Capacity, su.Status AS UnitStatus
+       FROM STORES s
+       JOIN STORAGE_UNIT su ON su.WarehouseID = s.WarehouseID AND su.UnitNo = s.UnitNo
+      WHERE s.AllocationID = :allocationId
+      FOR UPDATE OF s.AllocationStatus, su.Status`,
+    { allocationId: trip.ALLOCATIONID }
+  );
+  if (!allocation.rows.length || allocation.rows[0].ALLOCATIONSTATUS !== 'IN_TRANSIT') {
+    throw ApiError.businessRule('This storage allocation is not awaiting arrival.');
+  }
+  const row = allocation.rows[0];
+
+  await connection.execute(
+    `UPDATE STORES
+        SET AllocationStatus = 'ACTIVE', DateIn = TRUNC(SYSDATE)
+      WHERE AllocationID = :allocationId`,
+    { allocationId: trip.ALLOCATIONID }
+  );
+
+  if (!row.SALEORDERID) {
+    await connection.execute(
+      `UPDATE HARVEST_BATCH SET Status = 'STORED'
+        WHERE BatchID = :batchId AND Status = 'CREATED'`,
+      { batchId: row.BATCHID }
+    );
+  }
+
+  if (row.UNITSTATUS !== 'MAINTENANCE') {
+    const load = await connection.execute(
+      `SELECT NVL(SUM(QuantityStored), 0) AS Load
+         FROM STORES
+        WHERE WarehouseID = :warehouseId AND UnitNo = :unitNo AND DateOut IS NULL
+          AND AllocationStatus IN ('ACTIVE','PENDING_RELEASE')`,
+      { warehouseId: row.WAREHOUSEID, unitNo: row.UNITNO }
+    );
+    const physicalLoad = load.rows[0].LOAD;
+    const status = physicalLoad <= 0 ? 'EMPTY' : physicalLoad >= row.CAPACITY ? 'FULL' : 'PARTIAL';
+    await connection.execute(
+      `UPDATE STORAGE_UNIT SET Status = :status
+        WHERE WarehouseID = :warehouseId AND UnitNo = :unitNo`,
+      { status, warehouseId: row.WAREHOUSEID, unitNo: row.UNITNO }
+    );
+  }
+
+  await finishAssignments(connection, transportId);
+  return {
+    transportId,
+    allocationId: trip.ALLOCATIONID,
+    saleOrderId: trip.SALEORDERID,
+    requestType: 'STORAGE_INBOUND',
+    deliveryStatus: 'DELIVERED',
+    allocationStatus: 'ACTIVE',
+    dateIn: new Date().toISOString().slice(0, 10),
+    payment: null,
+  };
 }
 
 async function complete(personnelId, transportId, payload = {}) {
@@ -325,6 +417,17 @@ async function complete(personnelId, transportId, payload = {}) {
       throw ApiError.businessRule('Claim the trip before delivering it.');
     }
 
+    await connection.execute(
+      `UPDATE TRANSPORT_REQUEST
+          SET DeliveryStatus = 'DELIVERED', DeliveryDate = TRUNC(SYSDATE)
+        WHERE TransportID = :transportId`,
+      { transportId }
+    );
+
+    if (trip.REQUESTTYPE === 'STORAGE_INBOUND') {
+      return completeStorageInbound(connection, trip, transportId);
+    }
+
     const paidResult = await connection.execute(
       `SELECT NVL(SUM(Amount), 0) AS Paid FROM PAYMENT
         WHERE SaleOrderID = :saleOrderId AND PaymentStatus IN ('PENDING','COMPLETED')`,
@@ -332,13 +435,6 @@ async function complete(personnelId, transportId, payload = {}) {
     );
     const alreadyPaid = paidResult.rows[0].PAID;
     const outstanding = Number((trip.TOTALAMOUNT - alreadyPaid).toFixed(2));
-
-    await connection.execute(
-      `UPDATE TRANSPORT_REQUEST
-          SET DeliveryStatus = 'DELIVERED', DeliveryDate = TRUNC(SYSDATE)
-        WHERE TransportID = :transportId`,
-      { transportId }
-    );
 
     let payment = null;
     if (outstanding > 0 && trip.PAYMENTTERMS === 'ON_DELIVERY') {
@@ -353,7 +449,7 @@ async function complete(personnelId, transportId, payload = {}) {
       const inserted = await connection.execute(
         `INSERT INTO PAYMENT (PaymentID, SaleOrderID, BuyerID, FarmerID, Amount,
                               PaymentMethod, TransactionReference, PaymentStatus)
-         VALUES ((SELECT NVL(MAX(PaymentID), 0) + 1 FROM PAYMENT), :saleOrderId, :buyerId, :farmerId, :amount,
+         VALUES (seq_payment_id.NEXTVAL, :saleOrderId, :buyerId, :farmerId, :amount,
                  :method, :reference, 'COMPLETED')
          RETURNING PaymentID INTO :paymentId`,
         {
@@ -382,18 +478,7 @@ async function complete(personnelId, transportId, payload = {}) {
       );
     }
 
-    await connection.execute(
-      `UPDATE VEHICLE SET Status = 'AVAILABLE'
-        WHERE VehicleID IN (SELECT VehicleID FROM ASSIGNED_TO
-                             WHERE TransportID = :transportId
-                               AND AssignmentStatus = 'ACTIVE')`,
-      { transportId }
-    );
-    await connection.execute(
-      `UPDATE ASSIGNED_TO SET AssignmentStatus = 'COMPLETED'
-        WHERE TransportID = :transportId AND AssignmentStatus = 'ACTIVE'`,
-      { transportId }
-    );
+    await finishAssignments(connection, transportId);
 
     return {
       transportId,

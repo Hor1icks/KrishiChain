@@ -13,16 +13,19 @@ business rules, and scope. Read it (or the relevant section) before making desig
 don't re-derive things it already answers. Key sections: §0 Design Decisions, §7 ER constructs,
 §8 Business Rules, §9 Relational Schema + Oracle 11g standards, §11 Architecture/front-end plan.
 
-**This is the `update2` branch, and it deliberately differs from `master`.** Read the section
-"What the update2 branch removes" below before touching schema or insert code — most of what the
-PRD and the ER blueprint say about sequences and triggers is no longer true here. `master` keeps
-them; do not "restore" them on this branch.
+**Current change boundary:** do not add, remove, or alter database tables, columns, keys,
+relationships, or ER-diagram content. Trigger definitions and application queries may be
+improved as long as current workflows remain compatible.
 
-**Current state:** all 28 PRD §11.3 pages plus a profile page, six views, three PL/SQL packages,
-one object type, and SSLCommerz card payment. `Phase1/` (environment proof), `database/` (schema,
-seed, views, the PL/SQL layer, five advanced queries, a read-only demonstration script), `server/`
-(Express API), `client/` (React + Vite). **Still outstanding:** the narration script (PRD §11.3)
-and the Day-7 dry run.
+**This is the `update3` branch.** It retains every Update-2 feature and adds the Week-11
+sequence, trigger and indexing topics from the CSE-302 work plan. Read `UPDATE2.md` for the
+earlier technique map and `UPDATE3.md` for the new schema-automation map.
+
+**Current state:** all 28 application pages, eight views, three PL/SQL packages, one object type,
+18 sequences, 9 varied triggers, 31 application indexes, and SSLCommerz card payment.
+`Phase1/` contains the environment proof, `database/` contains the schema and demonstrations,
+`server/` is the Express API, and `client/` is the React + Vite application. **Still
+outstanding:** the narration script and final presentation dry run.
 
 All six PRD §9.10 transactions are implemented and fault-injection verified: Registration, Storage
 Allocation, Place Bid, Award Winning Bid, Assign Transport, Delivery+Payment.
@@ -33,25 +36,22 @@ call the endpoint, confirm the earlier statements left nothing behind, then drop
 `ENABLE NOVALIDATE` is required — a plain `ADD CONSTRAINT` fails with `ORA-02293` against existing
 rows.
 
-## What the update2 branch removes
+## Update-3 database automation
 
-The coursework for Update-2 grades seven techniques — function, subquery, view, abstract datatype,
-PL/SQL, cursor, exception handling — and sequences, triggers and indexes are explicitly not among
-them, because the class had not covered them. So on this branch:
+- `database/01_schema_automation.sql` defines the 18 surrogate-key sequences and 31 ordinary
+  indexes. IDs 1–1000 remain available for readable seed data; runtime IDs begin at 1001.
+- Runtime inserts use their table sequence directly and read the value with `RETURNING ... INTO`.
+  `USERS` deliberately retains one automatic-ID example in `trg_users_prepare`.
+  `STORAGE_UNIT.UnitNo` is the exception because it is a per-warehouse weak-entity partial key;
+  `pkg_krishi_rules.next_unit_no` assigns it while the warehouse row is locked.
+- The 31 `IX_` indexes cover foreign-key joins and common filters without duplicating indexes
+  Oracle already creates for primary-key and unique constraints.
+- `database/02_trigger_layer.sql` contains 9 varied row triggers: preparation, validation,
+  state-transition guards, and notifications. Large multi-step workflows remain explicit
+  service transactions.
 
-- **No sequences and no `trg_*_id` triggers.** Keys come from a scalar subquery in the insert;
-  see the Oracle constraints section below for the exact shape and its one exception.
-- **No business-rule triggers.** The four became `pkg_krishi_rules`, called from the service
-  layer. BR-19 is *simpler* this way: summing `PAYMENT` from a row trigger on `PAYMENT` raises
-  `ORA-04091: table is mutating`, which is why it used to need a compound trigger. A procedure
-  has no such problem. Don't reintroduce the trigger.
-- **No hand-written indexes.** Only the ones Oracle creates for `PRIMARY KEY` and `UNIQUE`
-  remain. `IX_` no longer appears anywhere.
-- **Files 06, 07, 09, 10, 11 and 12 are gone**, along with `ER/`, `KrishiChainV1/`, `docs/` and
-  both PDFs. `01_create_tables.sql` already contained everything those migrations added.
-
-A rebuild must end at `seq=0 trig=0`, no `IX%` indexes, and zero invalid objects. `UPDATE2.md`
-maps each graded technique to the page that exercises it.
+A rebuild must end with 18 valid sequences, 9 enabled triggers, 31 `IX_` indexes, and zero
+invalid objects. `database/11_trigger_demo.sql` tests the trigger layer and rolls back its rows.
 
 **SSLCommerz card payment** (`server/src/services/sslcommerz.service.js`) reserves the amount as a
 `PENDING` payment *before* opening the checkout session, so BR-19 counts the attempt and a balance
@@ -68,10 +68,13 @@ There is no root `package.json`; `server/` and `client/` are separate npm projec
 ```
 cd server && npm install && cp .env.example .env && npm start   # API on :5000
 cd client && npm install && npm run dev                         # UI on :5173
-cd client && npm run build                                      # only real "does it compile" check
+cd client && npm run build                                      # production compile check
+cd client && npm run lint                                       # Oxlint static checks
 ```
 
-No lint or test tooling has been chosen — don't invent lint/test commands.
+There is no automated test suite. Verify SQL changes on an empty disposable
+schema and smoke-test affected API workflows; never point destructive test
+scripts at the live application schema.
 
 `server/.env` gotcha: **quote the password if it contains a `#`.** Unquoted, `#` starts a comment
 in a `.env` file, so e.g. `DB_PASSWORD=Example#2026` parses as `Example` and yields `ORA-01017`.
@@ -84,23 +87,33 @@ nothing hardcoded), or SQL*Plus directly with whatever password `krishichain` ac
 ./db.sh database/99_inspect_data.sql
 ```
 
-The build chain is `00` → `01` → `02` → `03` → `04` → `05`, which is exactly what
-`./start.sh --rebuild` runs.
+The build chain is `00_reset` → `01_create_tables` → `01_schema_automation` →
+`02_trigger_layer` → `02_business_rules` → `03_insert_data` → `04_views` →
+`05_plsql_layer`, which is exactly what `./start.sh --rebuild` runs.
 
-- `database/00_reset.sql` — drops all 27 tables, then all types. On an already-empty schema
-  every statement reports `ORA-00942`; that is expected, not a failure.
+Normal `./start.sh` also detects an older persistent Docker volume and adds
+the missing Update-3 automation and views without running reset or seed. It
+stops rather than modifying data if it detects a partially applied automation set.
+
+- `database/00_reset.sql` — drops all 27 tables, all sequences, then all types. On an
+  already-empty schema, table-drop statements report `ORA-00942`; that is expected.
 - `database/01_create_tables.sql` — the whole schema, including everything the old 06, 07, 09,
   10 and 12 migrations used to add. Re-running it against a live schema yields `ORA-00955`.
+- `database/01_schema_automation.sql` — 18 sequences and 31 ordinary indexes.
+  Run it once after table creation; reset drops its objects during a clean rebuild.
+- `database/02_trigger_layer.sql` — 9 varied triggers. Safe to re-run with `CREATE OR REPLACE`.
 - `database/02_business_rules.sql` — `pkg_krishi_rules`, the cross-table rules. `CREATE OR
   REPLACE`, safe to re-run.
 - `database/03_insert_data.sql` — **wipes every table before re-seeding.** Idempotent by design,
   but never run it just to look at data.
-- `database/04_views.sql` — six views, all `CREATE OR REPLACE`, safe to re-run.
+- `database/04_views.sql` — eight views, all `CREATE OR REPLACE`, safe to re-run.
 - `database/05_plsql_layer.sql` — 2 packages, 5 functions, 7 procedures. All `CREATE OR REPLACE`,
   safe to re-run, unaffected by a re-seed. **The six PRD §9.10 transactions are deliberately NOT
   in here** — they need the authenticated user's identity and stay in the service layer.
-- `database/06_advanced_queries.sql`, `07_update2_demo.sql`, `99_inspect_data.sql` — read-only.
-  Run these for inspection.
+- `database/06_advanced_queries.sql`, `07_update2_demo.sql`, `08_update3_demo.sql`,
+  `11_trigger_demo.sql`, and
+  `99_inspect_data.sql` — demonstrations and inspection scripts. The Update-3 demo temporarily
+  inserts a proof row and rolls it back; it does not retain data.
 
 `Phase1/00_environment_check.sql` is one-time-per-machine setup: run as SYSTEM (checks 1–4,
 creates the `krishichain` app user), then reconnect as `krishichain` for Check 5.
@@ -114,18 +127,17 @@ first — it must point at the unzipped Instant Client 19c directory, not a OneD
 - **node-oracledb must run in Thick mode.** The default Thin mode requires Database 12.1+ and
   cannot connect to 11.2 at all. `oracledb.initOracleClient({ libDir: ... })` must execute before
   any `getConnection()`/`createPool()` call, using Oracle Instant Client 19c.
-- **No `IDENTITY` columns**, and on this branch no sequences either. A new row derives its own
-  key from the table it is going into, and `RETURNING` still works alongside it:
+- **No `IDENTITY` columns.** Oracle 11g runtime keys normally use `sequence.NEXTVAL` directly,
+  and `RETURNING` reads the assigned key:
 
   ```sql
   INSERT INTO BID (BidID, BatchID, ...)
-  VALUES ((SELECT NVL(MAX(BidID), 0) + 1 FROM BID), :batchId, ...)
+  VALUES (seq_bid_id.NEXTVAL, :batchId, ...)
   RETURNING BidID INTO :bidId
   ```
 
-  `RETURNING` is **not** valid with `INSERT ... SELECT` (`ORA-00933`), which is why the subquery
-  goes in the `VALUES` clause. `STORAGE_UNIT.UnitNo` is the one exception: it is a per-warehouse
-  partial key, so it comes from `pkg_krishi_rules.next_unit_no(:warehouseId)`.
+  `STORAGE_UNIT.UnitNo` is the one exception: it is a per-warehouse partial key, so it comes
+  from `pkg_krishi_rules.next_unit_no(:warehouseId)` while that warehouse is locked.
 - **No `FETCH FIRST n ROWS`.** Row-limiting must use `ROWNUM` inside an inline view.
 - **Self-referencing FKs break seed order**: `VIRTUAL_ARAT.ParentAratID` and `BID.PreviousBidID`
   must be inserted NULL first, then `UPDATE`d to link — see the insert order in PRD §14.
@@ -180,14 +192,18 @@ attributes (`MinimumPrice`, `BiddingStartTime`, `BiddingEndTime`) live directly 
 - **`ON DELETE` on 23 of 41 FKs** — 20 `CASCADE`, 3 `SET NULL`. The other 18 are deliberately
   left restricting: deleting a crop with sales history, or a farmer who has been paid, *should*
   fail. Don't "fix" them.
-- **`STORAGE_MANAGER`** gained `Designation`, `HireDate`, `ShiftSchedule`, `CertificationNo` —
-  one attribute was not enough to justify the subclass.
-- **`database/00_reset.sql`** drops all 27 tables, then every type, so
-  `01`→`02`→`03`→`04`→`05` rebuilds the schema from empty with zero errors.
+- **`STORAGE_MANAGER`** contains `Designation` and `ShiftSchedule`; employee ID, hire date and
+  certification number were removed in Update 4.
+- **Storage acceptance is not arrival.** An accepted `STORES` row becomes `IN_TRANSIT`; driver
+  delivery sets `DateIn` and `ACTIVE`. `STORAGE_UNIT.LocationTag` is the exact destination.
+- **Farm verification is advisory.** New farms enter an oldest-first `PENDING` ministry queue,
+  but pending farmers may still list and sell. `VERIFIED` is a farm-level badge, not a trust tier.
+- **`database/00_reset.sql`** drops all 27 tables, every sequence, then every type, so the full
+  build chain above recreates the schema from empty with zero errors.
 
 **Payment model (D-2):** direct buyer → farmer, no ARAT commission, no escrow. **Payment timing
-(BR-20)** is only allowed after transport status is `DELIVERED` — this is called out in the PRD as
-still-open for confirmation with the team before DDL is written; check before assuming it.
+(BR-20):** `ON_DELIVERY` payment is allowed only after transport status is `DELIVERED`; an
+`ADVANCE` preference may be paid earlier.
 
 **Six workflows require multi-statement atomic transactions** (PRD §9.10) — always wrap these in
 explicit `COMMIT`/`ROLLBACK`, never issue the statements independently: Registration (USERS +

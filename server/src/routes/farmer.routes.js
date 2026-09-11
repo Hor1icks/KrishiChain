@@ -60,6 +60,20 @@ router.get('/batches/:batchId', async (req, res, next) => {
   }
 });
 
+router.patch('/batches/:batchId/listing', async (req, res, next) => {
+  try {
+    res.json(
+      await farmer.scheduleBatch(
+        me(req),
+        param.id(req.params.batchId, 'batchId'),
+        req.body
+      )
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/batches/:batchId/bids', async (req, res, next) => {
   try {
     res.json(await farmer.listBidsForBatch(me(req), param.id(req.params.batchId, 'batchId')));

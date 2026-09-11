@@ -30,6 +30,7 @@ import ManageUsers from './pages/admin/ManageUsers';
 import DailyPrices from './pages/admin/DailyPrices';
 import Complaints from './pages/admin/Complaints';
 import Reports from './pages/admin/Reports';
+import FarmVerifications from './pages/admin/FarmVerifications';
 
 function Farmer({ children }) {
   return <ProtectedRoute roles={['FARMER']}>{children}</ProtectedRoute>;
@@ -118,6 +119,7 @@ export default function App() {
               <Route path="/admin/prices" element={<Admin><DailyPrices /></Admin>} />
               <Route path="/admin/complaints" element={<Admin><Complaints /></Admin>} />
               <Route path="/admin/reports" element={<Admin><Reports /></Admin>} />
+              <Route path="/admin/farm-verifications" element={<Admin><FarmVerifications /></Admin>} />
 
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>

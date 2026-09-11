@@ -112,12 +112,12 @@ export default function BuyerBatchDetail() {
         <Stat label="Bids" value={number(batch.bidCount)} />
         <Stat label="Bidders" value={number(batch.bidderCount)} />
         <Stat label="Hours left" value={batch.hoursRemaining ?? '—'} />
-        <Stat label="Grade" value={batch.qualityGrade || '—'} />
+        <Stat label="Farm verification" value={batch.farmVerificationStatus === 'VERIFIED' ? '✓ Ministry verified' : 'Pending'} />
         <Stat label="Crop base" value={`${batch.basePrice}/kg`} />
       </div>
 
       <p className="muted">
-        Moisture {batch.moisturePercentage ?? '—'}% · total {number(batch.totalQuantity)} kg
+        Total {number(batch.totalQuantity)} kg
         {batch.biddingEndTime && ` · closes ${dateTime(batch.biddingEndTime)}`}
       </p>
 

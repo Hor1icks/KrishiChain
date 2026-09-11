@@ -87,7 +87,9 @@ export default function Assignments() {
         body: { paymentMethod: 'CASH' },
       });
       setNotice(
-        res.payment
+        res.requestType === 'STORAGE_INBOUND'
+          ? `Delivered to storage. Allocation #${res.allocationId} is now active and its storage period has started.`
+          : res.payment
           ? `Delivered. ${taka(res.payment.amount)} collected on delivery and recorded ` +
             `against order #${res.saleOrderId} (ref ${res.payment.reference}). Order is ${res.orderStatus}.`
           : `Delivered. Order #${res.saleOrderId} was paid in advance, so no money changed ` +
@@ -136,7 +138,7 @@ export default function Assignments() {
           <thead>
             <tr>
               <th>Trip</th>
-              <th>Order</th>
+              <th>Purpose</th>
               <th>Crop</th>
               <th className="num">Quantity</th>
               <th>From</th>
@@ -150,7 +152,7 @@ export default function Assignments() {
             {requests.map((r) => (
               <tr key={r.transportId}>
                 <td>#{r.transportId}</td>
-                <td>#{r.saleOrderId}</td>
+                <td>{r.requestType === 'STORAGE_INBOUND' ? `Storage #${r.allocationId}` : `Order #${r.saleOrderId}`}</td>
                 <td>{r.cropName}</td>
                 <td className="num">
                   {number(r.quantity)} kg
@@ -167,7 +169,7 @@ export default function Assignments() {
                 <td className="small">{r.deliveryLocation || '—'}</td>
                 <td className="num">{taka(r.totalAmount)}</td>
                 <td>
-                  <span className="tag">{r.paymentTerms.replace(/_/g, ' ')}</span>
+                  <span className="tag">{r.paymentTerms ? r.paymentTerms.replace(/_/g, ' ') : 'STORAGE'}</span>
                 </td>
                 <td>
                   <button
@@ -192,7 +194,7 @@ export default function Assignments() {
           <h3>Claim trip #{claiming.transportId}</h3>
           <p className="muted">
             {claiming.cropName} · {number(claiming.quantity)} kg · {claiming.farmerName} →{' '}
-            {claiming.buyerName}
+            {claiming.requestType === 'STORAGE_INBOUND' ? claiming.deliveryLocation : claiming.buyerName}
           </p>
 
           <label>
@@ -232,7 +234,7 @@ export default function Assignments() {
           <thead>
             <tr>
               <th>Trip</th>
-              <th>Order</th>
+              <th>Purpose</th>
               <th>Crop</th>
               <th className="num">Quantity</th>
               <th>Vehicle</th>
@@ -251,7 +253,7 @@ export default function Assignments() {
                 className={t.deliveryStatus === 'DELIVERED' ? 'row-won' : undefined}
               >
                 <td>#{t.transportId}</td>
-                <td>#{t.saleOrderId}</td>
+                <td>{t.requestType === 'STORAGE_INBOUND' ? `Storage #${t.allocationId}` : `Order #${t.saleOrderId}`}</td>
                 <td>{t.cropName}</td>
                 <td className="num">{number(t.quantity)} kg</td>
                 <td className="small">
@@ -266,11 +268,11 @@ export default function Assignments() {
                   )}
                 </td>
                 <td className="small">
-                  {t.farmerName} → {t.buyerName}
+                  {t.pickupLocation} → {t.deliveryLocation}
                 </td>
                 <td className="num">{taka(t.totalAmount)}</td>
                 <td>
-                  <span className="tag">{t.paymentTerms.replace(/_/g, ' ')}</span>
+                  <span className="tag">{t.paymentTerms ? t.paymentTerms.replace(/_/g, ' ') : 'STORAGE'}</span>
                 </td>
                 <td>
                   <span className={`tag tag-${t.deliveryStatus.toLowerCase()}`}>
@@ -314,10 +316,15 @@ export default function Assignments() {
           <h3>Deliver trip #{delivering.transportId}?</h3>
           <p>
             {delivering.cropName} · <strong>{number(delivering.quantity)} kg</strong> to{' '}
-            <strong>{delivering.buyerName}</strong>.
+            <strong>{delivering.requestType === 'STORAGE_INBOUND' ? delivering.deliveryLocation : delivering.buyerName}</strong>.
           </p>
 
-          {collectsCash ? (
+          {delivering.requestType === 'STORAGE_INBOUND' ? (
+            <p className="muted">
+              This confirms arrival at the exact storage-unit location. It activates the allocation
+              and starts the storage period. No sale payment is collected here.
+            </p>
+          ) : collectsCash ? (
             <>
               <p className="muted">
                 Terms are on delivery, so you collect <strong>{taka(outstanding)}</strong> in
@@ -334,9 +341,10 @@ export default function Assignments() {
           )}
 
           <p className="note">
-            Marks the trip delivered, completes the sale order
-            {collectsCash && ', records the payment'} and hands the vehicles back, all at once or
-            not at all.
+            {delivering.requestType === 'STORAGE_INBOUND'
+              ? 'Marks the trip delivered, activates storage, and hands the vehicles back.'
+              : <>Marks the trip delivered, completes the sale order
+                {collectsCash && ', records the payment'} and hands the vehicles back, all at once or not at all.</>}
           </p>
 
           <div className="actions">

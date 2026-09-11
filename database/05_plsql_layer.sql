@@ -84,7 +84,7 @@ CREATE OR REPLACE PACKAGE BODY pkg_krishi_metrics AS
      WHERE BatchID = p_batch_id
        AND SaleOrderID IS NULL
        AND DateOut IS NULL
-       AND AllocationStatus IN ('PENDING_ACCEPT', 'ACTIVE', 'PENDING_RELEASE', 'COUNTERED');
+       AND AllocationStatus IN ('PENDING_ACCEPT','COUNTERED','IN_TRANSIT','ACTIVE','PENDING_RELEASE');
 
     RETURN v_total - v_sold - v_stored;
   EXCEPTION
@@ -174,7 +174,6 @@ CREATE OR REPLACE PACKAGE BODY pkg_krishi_reports AS
              f.District,
              va.AratName,
              hb.HarvestDate,
-             hb.QualityGrade,
              hb.TotalQuantity,
              hb.SoldQuantity,
              hb.AvailableQuantity,
@@ -469,8 +468,8 @@ IS
                           AND b.Status IN ('ACTIVE', 'WON'))
        AND NOT EXISTS (SELECT 1 FROM STORES s
                         WHERE s.BatchID = hb.BatchID
-                          AND s.AllocationStatus IN ('PENDING_ACCEPT', 'COUNTERED',
-                                                     'ACTIVE', 'PENDING_RELEASE'))
+                          AND s.AllocationStatus IN ('PENDING_ACCEPT','COUNTERED','IN_TRANSIT',
+                                                     'ACTIVE','PENDING_RELEASE'))
        FOR UPDATE OF hb.Status;
 BEGIN
   p_expired := 0;

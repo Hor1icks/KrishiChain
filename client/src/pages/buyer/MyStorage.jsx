@@ -5,7 +5,7 @@ export default function MyStorage() {
     <StorageConsentPage
       base="/buyer"
       title="My Storage"
-      intro="Once you have bought a batch, a manager can offer to hold it nearer you until you take delivery."
+      intro="Once you buy a batch, a manager can reserve a unit. It stays in transit until a driver delivers it there."
       legNote={
         'This is post-sale storage against one of your orders. Rejecting a proposal simply leaves ' +
         'the order open for a different manager to offer against.'

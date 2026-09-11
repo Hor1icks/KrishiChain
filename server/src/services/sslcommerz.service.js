@@ -112,8 +112,7 @@ async function beginCheckout(buyerId, saleOrderId, requestedAmount) {
     await connection.execute(
       `INSERT INTO PAYMENT (PaymentID, SaleOrderID, BuyerID, FarmerID, Amount,
                             PaymentMethod, TransactionReference, PaymentStatus)
-       VALUES ((SELECT NVL(MAX(PaymentID), 0) + 1 FROM PAYMENT),
-               :saleOrderId, :buyerId, :farmerId, :amount,
+       VALUES (seq_payment_id.NEXTVAL, :saleOrderId, :buyerId, :farmerId, :amount,
                'SSLCOMMERZ', :reference, 'PENDING')`,
       { saleOrderId, buyerId, farmerId: row.FARMERID, amount, reference }
     );
@@ -121,7 +120,7 @@ async function beginCheckout(buyerId, saleOrderId, requestedAmount) {
     return { tranId: reference, amount, order: row };
   });
 
-  return openSession({
+  return openReservedSession({
     tranId,
     amount,
     productName: `${order.CROPNAME} — order #${saleOrderId}`,
@@ -155,15 +154,14 @@ async function beginStorageCheckout(customerType, customerId, allocationId, requ
     await connection.execute(
       `INSERT INTO PAYMENT (PaymentID, PaymentType, AllocationID, Amount,
                             PaymentMethod, TransactionReference, PaymentStatus)
-       VALUES ((SELECT NVL(MAX(PaymentID), 0) + 1 FROM PAYMENT),
-               'STORAGE', :allocationId, :amount, 'SSLCOMMERZ', :reference, 'PENDING')`,
+       VALUES (seq_payment_id.NEXTVAL, 'STORAGE', :allocationId, :amount, 'SSLCOMMERZ', :reference, 'PENDING')`,
       { allocationId, amount, reference }
     );
 
     return { tranId: reference, amount, detail: alloc };
   });
 
-  return openSession({
+  return openReservedSession({
     tranId,
     amount,
     productName: `Storage fee — allocation #${allocationId}`,
@@ -198,13 +196,21 @@ async function openSession({ tranId, amount, productName, customerName, customer
   });
 
   if (session.status !== 'SUCCESS' || !session.GatewayPageURL) {
-    await markFailed(tranId);
     throw ApiError.badGateway(
       session.failedreason || 'The payment gateway would not open a session.'
     );
   }
 
   return { ...extra, amount, transactionId: tranId, redirectUrl: session.GatewayPageURL };
+}
+
+async function openReservedSession(details) {
+  try {
+    return await openSession(details);
+  } catch (err) {
+    await markFailed(details.tranId);
+    throw err;
+  }
 }
 
 async function markFailed(tranId) {

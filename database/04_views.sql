@@ -34,6 +34,7 @@ SELECT hb.BatchID,
        f.FarmID,
        f.FarmName,
        f.District                                  AS FarmDistrict,
+       f.VerificationStatus                        AS FarmVerificationStatus,
        fr.FarmerID,
        fu.FirstName || ' ' || fu.LastName           AS FarmerName,
        va.AratID,
@@ -44,8 +45,6 @@ SELECT hb.BatchID,
        hb.ReservedQuantity,
        hb.SoldQuantity,
        hb.AvailableQuantity,
-       hb.QualityGrade,
-       hb.MoisturePercentage,
        hb.MinimumPrice,
        hb.BiddingStartTime,
        hb.BiddingEndTime,
@@ -70,10 +69,12 @@ SELECT w.WarehouseID,
        sm.ManagerID,
        mu.FirstName || ' ' || mu.LastName                   AS ManagerName,
        su.UnitNo,
+       su.LocationTag,
        su.Capacity                                         AS UnitCapacity,
        su.Status                                           AS UnitStatus,
        NVL(ld.CurrentLoad, 0)                              AS CurrentLoad,
-       su.Capacity - NVL(ld.CurrentLoad, 0)                AS FreeSpace,
+       NVL(ld.IncomingLoad, 0)                             AS IncomingLoad,
+       su.Capacity - NVL(ld.CurrentLoad, 0) - NVL(ld.IncomingLoad, 0) AS FreeSpace,
        ROUND(NVL(ld.CurrentLoad, 0) / su.Capacity * 100, 1) AS UtilizationPct,
        CASE
          WHEN NVL(ld.CurrentLoad, 0) / su.Capacity > 0.90 THEN 'CRITICAL'
@@ -89,11 +90,15 @@ JOIN   USERS mu           ON mu.UserID      = sm.ManagerID
 LEFT   JOIN (
          SELECT WarehouseID,
                 UnitNo,
-                SUM(QuantityStored)     AS CurrentLoad,
-                COUNT(DISTINCT BatchID) AS BatchesHeld
+                SUM(CASE WHEN AllocationStatus IN ('ACTIVE','PENDING_RELEASE')
+                         THEN QuantityStored ELSE 0 END) AS CurrentLoad,
+                SUM(CASE WHEN AllocationStatus IN ('PENDING_ACCEPT','COUNTERED','IN_TRANSIT')
+                         THEN QuantityStored ELSE 0 END) AS IncomingLoad,
+                COUNT(DISTINCT CASE WHEN AllocationStatus IN ('ACTIVE','PENDING_RELEASE')
+                                    THEN BatchID END) AS BatchesHeld
          FROM   STORES
          WHERE  DateOut IS NULL
-           AND  AllocationStatus IN ('PENDING_ACCEPT', 'ACTIVE', 'PENDING_RELEASE', 'COUNTERED')
+           AND  AllocationStatus IN ('PENDING_ACCEPT','COUNTERED','IN_TRANSIT','ACTIVE','PENDING_RELEASE')
          GROUP  BY WarehouseID, UnitNo
        ) ld ON ld.WarehouseID = su.WarehouseID
            AND ld.UnitNo      = su.UnitNo;
@@ -214,7 +219,105 @@ LEFT   JOIN ASSIGNED_TO at  ON at.TransportID = tr.TransportID
                            AND at.AssignmentStatus = 'ACTIVE'
 LEFT   JOIN VEHICLE v       ON v.VehicleID    = at.VehicleID
 LEFT   JOIN USERS pu        ON pu.UserID      = at.PersonnelID
-WHERE  tr.DeliveryStatus <> 'DELIVERED';
+WHERE  tr.DeliveryStatus <> 'DELIVERED'
+  AND  tr.RequestType = 'SALE_DELIVERY';
+
+CREATE OR REPLACE VIEW V_ORDER_DETAILS AS
+SELECT so.SaleOrderID,
+       so.BidID,
+       hb.BatchID,
+       b.BuyerID,
+       f.FarmerID,
+       c.CropID,
+       c.CropName,
+       NVL(byr.BusinessName, bu.FirstName || ' ' || bu.LastName) AS BuyerName,
+       fu.FirstName || ' ' || fu.LastName                        AS FarmerName,
+       so.AcceptedQuantity,
+       so.AcceptedPricePerKg,
+       so.TotalAmount,
+       so.OrderDate,
+       so.Status,
+       so.PaymentTerms,
+       so.DeliveryPreference,
+       tr.TransportID,
+       tr.PickupLocation,
+       tr.DeliveryLocation,
+       tr.DeliveryDate,
+       tr.DeliveryStatus,
+       NVL(pp.AmountPaid, 0)                                    AS AmountPaid,
+       NVL(pp.CheckoutHeld, 0)                                  AS CheckoutHeld,
+       so.TotalAmount - NVL(pp.AmountPaid, 0)                    AS AmountOutstanding,
+       r.ReviewID
+FROM   SALE_ORDER so
+JOIN   BID b                ON b.BidID        = so.BidID
+JOIN   HARVEST_BATCH hb     ON hb.BatchID     = b.BatchID
+JOIN   CROP c               ON c.CropID       = hb.CropID
+JOIN   FARM f               ON f.FarmID       = hb.FarmID
+JOIN   USERS fu             ON fu.UserID      = f.FarmerID
+JOIN   BUYER byr            ON byr.BuyerID    = b.BuyerID
+JOIN   USERS bu             ON bu.UserID      = b.BuyerID
+LEFT   JOIN TRANSPORT_REQUEST tr ON tr.SaleOrderID = so.SaleOrderID
+LEFT   JOIN REVIEW r             ON r.SaleOrderID  = so.SaleOrderID
+LEFT   JOIN (
+         SELECT SaleOrderID,
+                SUM(CASE WHEN PaymentStatus IN ('PENDING', 'COMPLETED')
+                         THEN Amount ELSE 0 END) AS AmountPaid,
+                SUM(CASE WHEN PaymentMethod = 'SSLCOMMERZ'
+                              AND PaymentStatus = 'PENDING'
+                         THEN Amount ELSE 0 END) AS CheckoutHeld
+         FROM   PAYMENT
+         WHERE  PaymentType = 'SALE'
+         GROUP  BY SaleOrderID
+       ) pp ON pp.SaleOrderID = so.SaleOrderID;
+
+CREATE OR REPLACE VIEW V_STORAGE_DETAILS AS
+SELECT s.AllocationID,
+       s.BatchID,
+       s.SaleOrderID,
+       s.WarehouseID,
+       s.UnitNo,
+       s.ManagerID,
+       c.CropName,
+       w.WarehouseName,
+       w.District                                             AS WarehouseDistrict,
+       su.LocationTag,
+       tr.TransportID,
+       tr.DeliveryStatus                                      AS TransportStatus,
+       CASE WHEN s.RequestedByFarmerID IS NOT NULL
+            THEN 'FARMER' ELSE 'BUYER' END                    AS CustomerType,
+       NVL(s.RequestedByFarmerID, s.RequestedByBuyerID)        AS CustomerID,
+       cu.FirstName || ' ' || cu.LastName                     AS CustomerName,
+       s.QuantityStored,
+       s.DateIn,
+       s.DateOut,
+       s.AllocationStatus,
+       s.MinimumStorageDays,
+       s.MinimumReleaseDate,
+       s.StorageFeePerKgSnapshot,
+       s.StorageFee,
+       s.ReleaseRequestedBy,
+       s.ProposedBy,
+       s.CounterRatePerKg,
+       s.CounteredBy,
+       NVL(sp.FeePaid, 0)                                     AS FeePaid,
+       s.StorageFee - NVL(sp.FeePaid, 0)                      AS FeeOutstanding,
+       CASE WHEN s.DateIn IS NULL THEN 0
+            ELSE TRUNC(NVL(s.DateOut, SYSDATE)) - TRUNC(s.DateIn)
+       END                                                    AS StorageDays
+FROM   STORES s
+JOIN   WAREHOUSE w      ON w.WarehouseID = s.WarehouseID
+JOIN   STORAGE_UNIT su  ON su.WarehouseID = s.WarehouseID AND su.UnitNo = s.UnitNo
+JOIN   HARVEST_BATCH hb ON hb.BatchID    = s.BatchID
+JOIN   CROP c           ON c.CropID       = hb.CropID
+JOIN   USERS cu         ON cu.UserID      = NVL(s.RequestedByFarmerID, s.RequestedByBuyerID)
+LEFT   JOIN TRANSPORT_REQUEST tr ON tr.AllocationID = s.AllocationID
+LEFT   JOIN (
+         SELECT AllocationID, SUM(Amount) AS FeePaid
+         FROM   PAYMENT
+         WHERE  PaymentType = 'STORAGE'
+           AND  PaymentStatus IN ('PENDING', 'COMPLETED')
+         GROUP  BY AllocationID
+       ) sp ON sp.AllocationID = s.AllocationID;
 
 
 SET LINESIZE 150
@@ -222,7 +325,7 @@ SET PAGESIZE 60
 SET FEEDBACK OFF
 
 PROMPT
-PROMPT === All six views must be VALID ===
+PROMPT === All eight views must be VALID ===
 COLUMN view_name FORMAT A24
 COLUMN status    FORMAT A10
 SELECT object_name AS view_name, status
@@ -238,5 +341,6 @@ UNION ALL SELECT 'V_UNIT_UTILIZATION',   COUNT(*) FROM V_UNIT_UTILIZATION
 UNION ALL SELECT 'V_BIDDING_SUMMARY',    COUNT(*) FROM V_BIDDING_SUMMARY
 UNION ALL SELECT 'V_FARMER_EARNINGS',    COUNT(*) FROM V_FARMER_EARNINGS
 UNION ALL SELECT 'V_PENDING_DELIVERY',   COUNT(*) FROM V_PENDING_DELIVERY
+UNION ALL SELECT 'V_ORDER_DETAILS',      COUNT(*) FROM V_ORDER_DETAILS
+UNION ALL SELECT 'V_STORAGE_DETAILS',    COUNT(*) FROM V_STORAGE_DETAILS
 ORDER BY 1;
-

@@ -6,10 +6,11 @@ const { query, withTransaction } = require('../config/db');
 const ApiError = require('../utils/ApiError');
 
 
-async function assertManagesWarehouse(connection, managerId, warehouseId) {
+async function assertManagesWarehouse(connection, managerId, warehouseId, lock = false) {
   const result = await connection.execute(
     `SELECT WarehouseID FROM WAREHOUSE
-      WHERE WarehouseID = :warehouseId AND ManagerID = :managerId`,
+      WHERE WarehouseID = :warehouseId AND ManagerID = :managerId
+      ${lock ? 'FOR UPDATE' : ''}`,
     { warehouseId, managerId }
   );
   if (!result.rows.length) {
@@ -24,21 +25,22 @@ async function unitLoad(connection, warehouseId, unitNo) {
       WHERE WarehouseID = :warehouseId
         AND UnitNo      = :unitNo
         AND DateOut IS NULL
-        AND AllocationStatus IN ('PENDING_ACCEPT', 'ACTIVE', 'PENDING_RELEASE', 'COUNTERED')`,
+        AND AllocationStatus IN ('ACTIVE', 'PENDING_RELEASE')`,
     { warehouseId, unitNo }
   );
   return result.rows[0].LOAD;
 }
 
 async function refreshUnitStatus(connection, warehouseId, unitNo) {
-  const load = await unitLoad(connection, warehouseId, unitNo);
   const unit = await connection.execute(
     `SELECT Capacity, Status FROM STORAGE_UNIT
-      WHERE WarehouseID = :warehouseId AND UnitNo = :unitNo`,
+      WHERE WarehouseID = :warehouseId AND UnitNo = :unitNo
+      FOR UPDATE`,
     { warehouseId, unitNo }
   );
   if (unit.rows[0].STATUS === 'MAINTENANCE') return;
 
+  const load = await unitLoad(connection, warehouseId, unitNo);
   const capacity = unit.rows[0].CAPACITY;
   const status = load <= 0 ? 'EMPTY' : load >= capacity ? 'FULL' : 'PARTIAL';
 
@@ -60,7 +62,8 @@ async function loadAllocation(connection, allocationId) {
             w.ManagerID AS WarehouseManagerID
        FROM STORES s
        JOIN WAREHOUSE w ON w.WarehouseID = s.WarehouseID
-      WHERE s.AllocationID = :allocationId`,
+      WHERE s.AllocationID = :allocationId
+      FOR UPDATE OF s.AllocationStatus`,
     { allocationId }
   );
   if (!result.rows.length) throw ApiError.notFound('No such allocation.');
@@ -117,44 +120,56 @@ async function finalizeAcceptance(connection, allocation, agreedRate) {
 
   await connection.execute(
     `UPDATE STORES
-        SET AllocationStatus        = 'ACTIVE',
-            DateIn                  = TRUNC(SYSDATE),
+        SET AllocationStatus        = 'IN_TRANSIT',
+            DateIn                  = NULL,
             StorageFeePerKgSnapshot = :agreedRate
       WHERE AllocationID = :allocationId`,
     { agreedRate, allocationId }
   );
-  await refreshUnitStatus(connection, allocation.WAREHOUSEID, allocation.UNITNO);
 
-  if (!allocation.SALEORDERID) {
-    const batch = await connection.execute(
-      `SELECT Status FROM HARVEST_BATCH WHERE BatchID = :batchId`,
-      { batchId: allocation.BATCHID }
+  const route = await connection.execute(
+    `SELECT w.WarehouseName, w.Address, w.District, su.LocationTag,
+            f.Location AS FarmLocation, f.District AS FarmDistrict
+       FROM WAREHOUSE w
+       JOIN STORAGE_UNIT su ON su.WarehouseID = w.WarehouseID AND su.UnitNo = :unitNo
+       JOIN HARVEST_BATCH hb ON hb.BatchID = :batchId
+       JOIN FARM f ON f.FarmID = hb.FarmID
+      WHERE w.WarehouseID = :warehouseId`,
+    { unitNo: allocation.UNITNO, batchId: allocation.BATCHID, warehouseId: allocation.WAREHOUSEID }
+  );
+  const destination = [
+    route.rows[0].WAREHOUSENAME,
+    `Unit ${allocation.UNITNO}: ${route.rows[0].LOCATIONTAG}`,
+    route.rows[0].ADDRESS,
+    route.rows[0].DISTRICT,
+  ].filter(Boolean).join(', ').slice(0, 200);
+
+  if (allocation.SALEORDERID) {
+    await connection.execute(
+      `UPDATE SALE_ORDER SET DeliveryPreference = 'VIA_STORAGE'
+        WHERE SaleOrderID = :saleOrderId AND DeliveryPreference = 'PENDING'`,
+      { saleOrderId: allocation.SALEORDERID }
     );
-    if (batch.rows[0].STATUS === 'CREATED') {
-      await connection.execute(
-        `UPDATE HARVEST_BATCH SET Status = 'STORED' WHERE BatchID = :batchId`,
-        { batchId: allocation.BATCHID }
-      );
+    const changed = await connection.execute(
+      `UPDATE TRANSPORT_REQUEST
+          SET RequestType = 'STORAGE_INBOUND', AllocationID = :allocationId,
+              DeliveryLocation = :destination
+        WHERE SaleOrderID = :saleOrderId AND DeliveryStatus = 'PENDING'`,
+      { allocationId, destination, saleOrderId: allocation.SALEORDERID }
+    );
+    if (!changed.rowsAffected) {
+      throw ApiError.businessRule('The order transport has already started and can no longer be redirected to storage.');
     }
     return;
   }
 
-  const warehouse = await connection.execute(
-    `SELECT WarehouseName, Address, District FROM WAREHOUSE WHERE WarehouseID = :warehouseId`,
-    { warehouseId: allocation.WAREHOUSEID }
-  );
-  const w = warehouse.rows[0];
-  const destination = [w.WAREHOUSENAME, w.ADDRESS, w.DISTRICT].filter(Boolean).join(', ');
-
+  const pickup = [route.rows[0].FARMLOCATION, route.rows[0].FARMDISTRICT]
+    .filter(Boolean).join(', ').slice(0, 200);
   await connection.execute(
-    `UPDATE SALE_ORDER SET DeliveryPreference = 'VIA_STORAGE'
-      WHERE SaleOrderID = :saleOrderId AND DeliveryPreference = 'PENDING'`,
-    { saleOrderId: allocation.SALEORDERID }
-  );
-  await connection.execute(
-    `UPDATE TRANSPORT_REQUEST SET DeliveryLocation = SUBSTR(:destination, 1, 200)
-      WHERE SaleOrderID = :saleOrderId AND DeliveryStatus = 'PENDING'`,
-    { destination, saleOrderId: allocation.SALEORDERID }
+    `INSERT INTO TRANSPORT_REQUEST
+       (TransportID, RequestType, AllocationID, PickupLocation, DeliveryLocation)
+     VALUES (seq_transport_request_id.NEXTVAL, 'STORAGE_INBOUND', :allocationId, :pickup, :destination)`,
+    { allocationId, pickup, destination }
   );
 }
 
@@ -208,8 +223,10 @@ async function getDashboard(managerId) {
     `SELECT WarehouseID    AS "warehouseId",
             WarehouseName  AS "warehouseName",
             UnitNo         AS "unitNo",
+            LocationTag    AS "locationTag",
             UnitCapacity   AS "capacity",
             CurrentLoad    AS "currentLoad",
+            IncomingLoad   AS "incomingLoad",
             FreeSpace      AS "freeSpace",
             UtilizationPct AS "utilizationPct",
             AlertLevel     AS "alertLevel",
@@ -255,6 +272,7 @@ async function listWarehouses(managerId) {
             COUNT(u.UnitNo)                  AS "unitCount",
             NVL(SUM(u.UnitCapacity), 0)      AS "unitCapacity",
             NVL(SUM(u.CurrentLoad), 0)       AS "currentLoad",
+            NVL(SUM(u.IncomingLoad), 0)      AS "incomingLoad",
             NVL(SUM(u.FreeSpace), 0)         AS "freeSpace"
        FROM WAREHOUSE w
        LEFT JOIN V_UNIT_UTILIZATION u ON u.WarehouseID = w.WarehouseID
@@ -278,8 +296,10 @@ async function listUnits(managerId, warehouseId) {
     `SELECT WarehouseID    AS "warehouseId",
             WarehouseName  AS "warehouseName",
             UnitNo         AS "unitNo",
+            LocationTag    AS "locationTag",
             UnitCapacity   AS "capacity",
             CurrentLoad    AS "currentLoad",
+            IncomingLoad   AS "incomingLoad",
             FreeSpace      AS "freeSpace",
             UtilizationPct AS "utilizationPct",
             AlertLevel     AS "alertLevel",
@@ -309,7 +329,7 @@ async function createWarehouse(managerId, payload) {
   return withTransaction(async (connection) => {
     const result = await connection.execute(
       `INSERT INTO WAREHOUSE (WarehouseID, WarehouseName, Address, District, Capacity, ManagerID, StorageFeePerKgRate)
-       VALUES ((SELECT NVL(MAX(WarehouseID), 0) + 1 FROM WAREHOUSE), :warehouseName, :address, :district, :capacity, :managerId, :rate)
+       VALUES (seq_warehouse_id.NEXTVAL, :warehouseName, :address, :district, :capacity, :managerId, :rate)
        RETURNING WarehouseID INTO :warehouseId`,
       {
         warehouseName: payload.warehouseName,
@@ -340,19 +360,24 @@ async function setStorageFeeRate(managerId, warehouseId, rate) {
 }
 
 async function addUnit(managerId, warehouseId, payload) {
+  if (!String(payload.locationTag || '').trim()) {
+    throw ApiError.badRequest('A specific location tag is required for the storage unit.');
+  }
   if (!(Number(payload.capacity) > 0)) {
     throw ApiError.badRequest('Unit capacity must be greater than zero.');
   }
 
   return withTransaction(async (connection) => {
-    await assertManagesWarehouse(connection, managerId, warehouseId);
+    // Serialize per-warehouse unit numbering because UnitNo is a partial key.
+    await assertManagesWarehouse(connection, managerId, warehouseId, true);
 
     const result = await connection.execute(
-      `INSERT INTO STORAGE_UNIT (UnitNo, WarehouseID, Capacity, Status)
-       VALUES (pkg_krishi_rules.next_unit_no(:warehouseId), :warehouseId, :capacity, 'EMPTY')
+      `INSERT INTO STORAGE_UNIT (UnitNo, WarehouseID, LocationTag, Capacity, Status)
+       VALUES (pkg_krishi_rules.next_unit_no(:warehouseId), :warehouseId, :locationTag, :capacity, 'EMPTY')
        RETURNING UnitNo INTO :unitNo`,
       {
         warehouseId,
+        locationTag: String(payload.locationTag).trim(),
         capacity: Number(payload.capacity),
         unitNo: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER },
       }
@@ -369,7 +394,6 @@ const LEG1_BASE_SQL = `
          fu.FirstName || ' ' || fu.LastName           AS "farmerName",
          f.District                                  AS "farmDistrict",
          hb.HarvestDate                              AS "harvestDate",
-         hb.QualityGrade                             AS "qualityGrade",
          hb.TotalQuantity                            AS "totalQuantity",
          hb.SoldQuantity                             AS "soldQuantity",
          hb.Status                                   AS "batchStatus",
@@ -383,7 +407,7 @@ const LEG1_BASE_SQL = `
       SELECT BatchID, SUM(QuantityStored) AS StoredQty
         FROM STORES
        WHERE DateOut IS NULL
-         AND AllocationStatus IN ('PENDING_ACCEPT', 'ACTIVE', 'PENDING_RELEASE', 'COUNTERED')
+         AND AllocationStatus IN ('PENDING_ACCEPT','COUNTERED','IN_TRANSIT','ACTIVE','PENDING_RELEASE')
          AND SaleOrderID IS NULL
        GROUP BY BatchID
     ) st ON st.BatchID = hb.BatchID
@@ -417,7 +441,7 @@ const LEG2_BASE_SQL = `
      AND NOT EXISTS (
        SELECT 1 FROM STORES s2
         WHERE s2.SaleOrderID = so.SaleOrderID
-          AND s2.AllocationStatus IN ('PENDING_ACCEPT', 'ACTIVE', 'PENDING_RELEASE', 'COMPLETED', 'COUNTERED')
+          AND s2.AllocationStatus IN ('PENDING_ACCEPT','COUNTERED','IN_TRANSIT','ACTIVE','PENDING_RELEASE','COMPLETED')
      )
 `;
 
@@ -429,39 +453,35 @@ async function listSaleOrdersAwaitingStorage() {
 
 async function listAllocations(managerId) {
   const result = await query(
-    `SELECT s.AllocationID     AS "allocationId",
-            s.BatchID          AS "batchId",
-            c.CropName         AS "cropName",
-            s.WarehouseID      AS "warehouseId",
-            w.WarehouseName    AS "warehouseName",
-            s.UnitNo           AS "unitNo",
-            s.QuantityStored   AS "quantityStored",
-            s.DateIn           AS "dateIn",
-            s.DateOut          AS "dateOut",
-            s.AllocationStatus AS "allocationStatus",
-            s.MinimumStorageDays AS "minimumStorageDays",
-            s.MinimumReleaseDate AS "minimumReleaseDate",
-            s.StorageFeePerKgSnapshot AS "storageFeePerKgRate",
-            s.StorageFee       AS "storageFee",
-            s.ReleaseRequestedBy AS "releaseRequestedBy",
-            s.SaleOrderID      AS "saleOrderId",
-            s.ProposedBy       AS "proposedBy",
-            s.CounterRatePerKg AS "counterRatePerKg",
-            s.CounteredBy      AS "counteredBy",
-            CASE WHEN s.RequestedByFarmerID IS NOT NULL THEN 'FARMER' ELSE 'BUYER' END AS "customerType",
-            cu.FirstName || ' ' || cu.LastName AS "customerName",
-            NVL((SELECT SUM(sp.Amount) FROM PAYMENT sp
-                  WHERE sp.PaymentType = 'STORAGE'
-                    AND sp.AllocationID = s.AllocationID
-                    AND sp.PaymentStatus IN ('PENDING','COMPLETED')), 0) AS "feePaid",
-            pkg_krishi_metrics.fn_storage_days(s.AllocationID) AS "storageDays"
-       FROM STORES s
-       JOIN WAREHOUSE w      ON w.WarehouseID = s.WarehouseID
-       JOIN HARVEST_BATCH hb ON hb.BatchID    = s.BatchID
-       JOIN CROP c           ON c.CropID      = hb.CropID
-       JOIN USERS cu         ON cu.UserID     = NVL(s.RequestedByFarmerID, s.RequestedByBuyerID)
-      WHERE w.ManagerID = :managerId
-      ORDER BY s.AllocationID DESC`,
+    `SELECT AllocationID       AS "allocationId",
+            BatchID            AS "batchId",
+            CropName           AS "cropName",
+            WarehouseID        AS "warehouseId",
+            WarehouseName      AS "warehouseName",
+            UnitNo             AS "unitNo",
+            LocationTag        AS "locationTag",
+            QuantityStored     AS "quantityStored",
+            DateIn             AS "dateIn",
+            DateOut            AS "dateOut",
+            AllocationStatus   AS "allocationStatus",
+            MinimumStorageDays AS "minimumStorageDays",
+            MinimumReleaseDate AS "minimumReleaseDate",
+            StorageFeePerKgSnapshot AS "storageFeePerKgRate",
+            StorageFee         AS "storageFee",
+            ReleaseRequestedBy AS "releaseRequestedBy",
+            SaleOrderID        AS "saleOrderId",
+            ProposedBy         AS "proposedBy",
+            CounterRatePerKg   AS "counterRatePerKg",
+            CounteredBy        AS "counteredBy",
+            TransportID        AS "transportId",
+            TransportStatus    AS "transportStatus",
+            CustomerType       AS "customerType",
+            CustomerName       AS "customerName",
+            FeePaid            AS "feePaid",
+            StorageDays        AS "storageDays"
+       FROM V_STORAGE_DETAILS
+      WHERE ManagerID = :managerId
+      ORDER BY AllocationID DESC`,
     { managerId }
   );
   return result.rows;
@@ -475,6 +495,7 @@ async function listRequestsForManager(managerId) {
             s.WarehouseID      AS "warehouseId",
             w.WarehouseName    AS "warehouseName",
             s.UnitNo           AS "unitNo",
+            su.LocationTag     AS "locationTag",
             s.QuantityStored   AS "quantityStored",
             s.MinimumStorageDays AS "minimumStorageDays",
             s.StorageFeePerKgSnapshot AS "ratePerKg",
@@ -489,6 +510,7 @@ async function listRequestsForManager(managerId) {
             s.QuantityStored * NVL(s.CounterRatePerKg, s.StorageFeePerKgSnapshot) AS "estimatedFee"
        FROM STORES s
        JOIN WAREHOUSE w      ON w.WarehouseID = s.WarehouseID
+       JOIN STORAGE_UNIT su  ON su.WarehouseID = s.WarehouseID AND su.UnitNo = s.UnitNo
        JOIN HARVEST_BATCH hb ON hb.BatchID    = s.BatchID
        JOIN CROP c           ON c.CropID      = hb.CropID
        JOIN USERS cu         ON cu.UserID     = NVL(s.RequestedByFarmerID, s.RequestedByBuyerID)
@@ -525,6 +547,7 @@ async function listAllUnitsPublic(warehouseId) {
     `SELECT WarehouseID    AS "warehouseId",
             WarehouseName  AS "warehouseName",
             UnitNo         AS "unitNo",
+            LocationTag    AS "locationTag",
             UnitCapacity   AS "capacity",
             FreeSpace      AS "freeSpace",
             UnitStatus     AS "unitStatus"
@@ -539,7 +562,14 @@ async function listAllUnitsPublic(warehouseId) {
 
 
 async function assertUnitHasRoom(connection, warehouseId, unitNo, capacity, quantity) {
-  const load = await unitLoad(connection, warehouseId, unitNo);
+  const result = await connection.execute(
+    `SELECT NVL(SUM(QuantityStored), 0) AS Load
+       FROM STORES
+      WHERE WarehouseID = :warehouseId AND UnitNo = :unitNo AND DateOut IS NULL
+        AND AllocationStatus IN ('PENDING_ACCEPT','COUNTERED','IN_TRANSIT','ACTIVE','PENDING_RELEASE')`,
+    { warehouseId, unitNo }
+  );
+  const load = result.rows[0].LOAD;
   const free = capacity - load;
   if (quantity > free) {
     throw ApiError.businessRule(
@@ -583,7 +613,7 @@ async function resolveAllocationTarget(connection, payload, quantity, isLeg2, ex
     const already = await connection.execute(
       `SELECT NVL(SUM(QuantityStored), 0) AS Qty FROM STORES
         WHERE SaleOrderID = :saleOrderId
-          AND AllocationStatus IN ('PENDING_ACCEPT', 'ACTIVE', 'PENDING_RELEASE', 'COMPLETED', 'COUNTERED')`,
+          AND AllocationStatus IN ('PENDING_ACCEPT','COUNTERED','IN_TRANSIT','ACTIVE','PENDING_RELEASE','COMPLETED')`,
       { saleOrderId }
     );
     const remaining = order.rows[0].ACCEPTEDQUANTITY - already.rows[0].QTY;
@@ -606,7 +636,7 @@ async function resolveAllocationTarget(connection, payload, quantity, isLeg2, ex
     `SELECT hb.TotalQuantity, hb.SoldQuantity, hb.Status, f.FarmerID,
             NVL((SELECT SUM(QuantityStored) FROM STORES s
                   WHERE s.BatchID = hb.BatchID AND s.SaleOrderID IS NULL
-                    AND s.AllocationStatus IN ('PENDING_ACCEPT','ACTIVE','PENDING_RELEASE','COUNTERED')), 0) AS StoredQty
+                    AND s.AllocationStatus IN ('PENDING_ACCEPT','COUNTERED','IN_TRANSIT','ACTIVE','PENDING_RELEASE')), 0) AS StoredQty
        FROM HARVEST_BATCH hb JOIN FARM f ON f.FarmID = hb.FarmID
       WHERE hb.BatchID = :batchId`,
     { batchId }
@@ -675,13 +705,11 @@ async function propose(managerId, payload) {
 
     const inserted = await connection.execute(
       `INSERT INTO STORES (
-         AllocationID,
-         BatchID, WarehouseID, UnitNo, ManagerID, QuantityStored,
+         AllocationID, BatchID, WarehouseID, UnitNo, ManagerID, QuantityStored,
          RequestedByFarmerID, RequestedByBuyerID, SaleOrderID,
          MinimumStorageDays, StorageFeePerKgSnapshot, AllocationStatus, ProposedBy
        ) VALUES (
-         (SELECT NVL(MAX(AllocationID), 0) + 1 FROM STORES),
-         :batchId, :warehouseId, :unitNo, :managerId, :quantity,
+         seq_stores_id.NEXTVAL, :batchId, :warehouseId, :unitNo, :managerId, :quantity,
          :requestedByFarmerId, :requestedByBuyerId, :saleOrderId,
          :minimumStorageDays, :rate, 'PENDING_ACCEPT', 'MANAGER'
        )
@@ -766,13 +794,11 @@ async function requestAllocation(customerType, customerId, payload) {
 
     const inserted = await connection.execute(
       `INSERT INTO STORES (
-         AllocationID,
-         BatchID, WarehouseID, UnitNo, ManagerID, QuantityStored,
+         AllocationID, BatchID, WarehouseID, UnitNo, ManagerID, QuantityStored,
          RequestedByFarmerID, RequestedByBuyerID, SaleOrderID,
          MinimumStorageDays, StorageFeePerKgSnapshot, AllocationStatus, ProposedBy
        ) VALUES (
-         (SELECT NVL(MAX(AllocationID), 0) + 1 FROM STORES),
-         :batchId, :warehouseId, :unitNo, :managerId, :quantity,
+         seq_stores_id.NEXTVAL, :batchId, :warehouseId, :unitNo, :managerId, :quantity,
          :requestedByFarmerId, :requestedByBuyerId, :saleOrderId,
          :minimumStorageDays, :rate, 'PENDING_ACCEPT', 'CUSTOMER'
        )
@@ -861,9 +887,9 @@ async function respondToProposal(responderType, responderId, allocationId, decis
     await finalizeAcceptance(connection, allocation, allocation.STORAGEFEEPERKGSNAPSHOT);
     return {
       allocationId,
-      status: 'ACTIVE',
+      status: 'IN_TRANSIT',
       agreedRatePerKg: allocation.STORAGEFEEPERKGSNAPSHOT,
-      dateIn: new Date().toISOString().slice(0, 10),
+      dateIn: null,
       minimumReleaseDate: null,
     };
   });
@@ -909,7 +935,7 @@ async function respondToCounter(responderType, responderId, allocationId, decisi
     await finalizeAcceptance(connection, allocation, allocation.COUNTERRATEPERKG);
     return {
       allocationId,
-      status: 'ACTIVE',
+      status: 'IN_TRANSIT',
       agreedRatePerKg: allocation.COUNTERRATEPERKG,
       mechanism: 'COUNTER_ACCEPTED',
     };
@@ -990,36 +1016,30 @@ async function respondToRelease(responderType, responderId, allocationId, decisi
 
 
 async function listFeesForCustomer(customerType, customerId) {
-  const column = customerType === 'FARMER' ? 'RequestedByFarmerID' : 'RequestedByBuyerID';
   const result = await query(
-    `SELECT s.AllocationID     AS "allocationId",
-            s.BatchID          AS "batchId",
-            c.CropName         AS "cropName",
-            w.WarehouseName    AS "warehouseName",
-            s.UnitNo           AS "unitNo",
-            s.QuantityStored   AS "quantityStored",
-            s.StorageFeePerKgSnapshot AS "ratePerKg",
-            s.StorageFee       AS "totalFee",
-            s.AllocationStatus AS "allocationStatus",
-            s.DateIn           AS "dateIn",
-            s.MinimumReleaseDate AS "minimumReleaseDate",
-            NVL((SELECT SUM(sp.Amount) FROM PAYMENT sp
-                  WHERE sp.PaymentType = 'STORAGE'
-                    AND sp.AllocationID = s.AllocationID
-                    AND sp.PaymentStatus IN ('PENDING','COMPLETED')), 0) AS "paidSoFar",
-            pkg_krishi_metrics.fn_storage_days(s.AllocationID) AS "storageDays"
-       FROM STORES s
-       JOIN WAREHOUSE w      ON w.WarehouseID = s.WarehouseID
-       JOIN HARVEST_BATCH hb ON hb.BatchID    = s.BatchID
-       JOIN CROP c           ON c.CropID      = hb.CropID
-      WHERE s.${column} = :customerId
+    `SELECT AllocationID       AS "allocationId",
+            BatchID            AS "batchId",
+            CropName           AS "cropName",
+            WarehouseName      AS "warehouseName",
+            UnitNo             AS "unitNo",
+            QuantityStored     AS "quantityStored",
+            StorageFeePerKgSnapshot AS "ratePerKg",
+            StorageFee         AS "totalFee",
+            AllocationStatus   AS "allocationStatus",
+            DateIn             AS "dateIn",
+            MinimumReleaseDate AS "minimumReleaseDate",
+            FeePaid            AS "paidSoFar",
+            StorageDays        AS "storageDays"
+       FROM V_STORAGE_DETAILS
+      WHERE CustomerType = :customerType
+        AND CustomerID = :customerId
         -- Only allocations the customer has actually accepted owe a fee.
         -- PENDING_ACCEPT and COUNTERED are deliberately excluded here,
         -- not just REJECTED/CANCELLED — paying against an unaccepted
         -- proposal was the item-10 bug (see payFee()'s matching guard).
-        AND s.AllocationStatus IN ('ACTIVE', 'PENDING_RELEASE', 'COMPLETED')
-      ORDER BY s.AllocationID DESC`,
-    { customerId }
+        AND AllocationStatus IN ('ACTIVE', 'PENDING_RELEASE', 'COMPLETED')
+      ORDER BY AllocationID DESC`,
+    { customerType, customerId }
   );
   return result.rows;
 }
@@ -1053,7 +1073,7 @@ async function payFee(customerType, customerId, allocationId, payload) {
     const reference = `SF-${Date.now()}-${allocationId}`;
     const result = await connection.execute(
       `INSERT INTO PAYMENT (PaymentID, PaymentType, AllocationID, Amount, PaymentMethod, TransactionReference, PaymentStatus)
-       VALUES ((SELECT NVL(MAX(PaymentID), 0) + 1 FROM PAYMENT), 'STORAGE', :allocationId, :amount, :paymentMethod, :reference, 'COMPLETED')
+       VALUES (seq_payment_id.NEXTVAL, 'STORAGE', :allocationId, :amount, :paymentMethod, :reference, 'COMPLETED')
        RETURNING PaymentID INTO :storagePaymentId`,
       {
         allocationId,
@@ -1120,6 +1140,22 @@ async function setUnitMaintenance(managerId, warehouseId, unitNo, inMaintenance)
   });
 }
 
+async function setUnitLocation(managerId, warehouseId, unitNo, locationTag) {
+  const clean = String(locationTag || '').trim();
+  if (!clean) throw ApiError.badRequest('A specific location tag is required.');
+
+  return withTransaction(async (connection) => {
+    await assertManagesWarehouse(connection, managerId, warehouseId);
+    const updated = await connection.execute(
+      `UPDATE STORAGE_UNIT SET LocationTag = :locationTag
+        WHERE WarehouseID = :warehouseId AND UnitNo = :unitNo`,
+      { locationTag: clean, warehouseId, unitNo }
+    );
+    if (!updated.rowsAffected) throw ApiError.notFound('No such storage unit.');
+    return { warehouseId, unitNo, locationTag: clean };
+  });
+}
+
 module.exports = {
   getDashboard,
   listWarehouses,
@@ -1128,6 +1164,7 @@ module.exports = {
   listUnits,
   addUnit,
   setUnitMaintenance,
+  setUnitLocation,
   listBatchesAwaitingStorage,
   listSaleOrdersAwaitingStorage,
   listAllocations,

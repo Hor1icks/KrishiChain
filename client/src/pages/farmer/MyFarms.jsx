@@ -102,6 +102,7 @@ export default function MyFarms() {
               <th>District</th>
               <th className="num">Batches</th>
               <th>Status</th>
+              <th>Ministry verification</th>
             </tr>
           </thead>
           <tbody>
@@ -115,6 +116,11 @@ export default function MyFarms() {
                 <td>{f.district}</td>
                 <td className="num">{number(f.batchCount)}</td>
                 <td>{f.status}</td>
+                <td>
+                  <span className={`tag tag-${f.verificationStatus.toLowerCase()}`}>
+                    {f.verificationStatus === 'VERIFIED' ? '✓ Ministry verified' : f.verificationStatus}
+                  </span>
+                </td>
               </tr>
             ))}
           </tbody>

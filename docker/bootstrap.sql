@@ -46,11 +46,13 @@ SET SQLBLANKLINES ON
 SET DEFINE OFF
 SET SERVEROUTPUT ON
 
--- The graded files themselves are untouched and copied in verbatim — see
--- the Dockerfile. This is the exact 01->05 build chain from the README,
+-- The database files are copied into the image verbatim — see the
+-- Dockerfile. This is the exact build chain from the README,
 -- run against a database with nothing in it yet, so 00_reset.sql (whose
 -- entire job is dropping objects that might already exist) is skipped.
 @/opt/krishichain/database/01_create_tables.sql
+@/opt/krishichain/database/01_schema_automation.sql
+@/opt/krishichain/database/02_trigger_layer.sql
 @/opt/krishichain/database/02_business_rules.sql
 @/opt/krishichain/database/03_insert_data.sql
 @/opt/krishichain/database/04_views.sql

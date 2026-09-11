@@ -85,12 +85,11 @@ async function browseBatches(buyerId, filters = {}) {
             v.FarmerName         AS "farmerName",
             v.FarmName           AS "farmName",
             v.FarmDistrict       AS "farmDistrict",
+            v.FarmVerificationStatus AS "farmVerificationStatus",
             v.AratName           AS "aratName",
             v.HarvestDate        AS "harvestDate",
             v.SoldQuantity       AS "soldQuantity",
             v.AvailableQuantity  AS "availableQuantity",
-            v.QualityGrade       AS "qualityGrade",
-            v.MoisturePercentage AS "moisturePercentage",
             v.MinimumPrice       AS "minimumPrice",
             v.MinimumBidQuantity AS "minimumBidQuantity",
             v.CurrentHighestBid  AS "currentHighestBid",
@@ -120,14 +119,13 @@ async function getBatch(buyerId, batchId) {
             v.FarmerName         AS "farmerName",
             v.FarmName           AS "farmName",
             v.FarmDistrict       AS "farmDistrict",
+            v.FarmVerificationStatus AS "farmVerificationStatus",
             v.AratName           AS "aratName",
             v.AratDistrict       AS "aratDistrict",
             v.HarvestDate        AS "harvestDate",
             v.TotalQuantity      AS "totalQuantity",
             v.SoldQuantity       AS "soldQuantity",
             v.AvailableQuantity  AS "availableQuantity",
-            v.QualityGrade       AS "qualityGrade",
-            v.MoisturePercentage AS "moisturePercentage",
             v.MinimumPrice       AS "minimumPrice",
             v.MinimumBidQuantity AS "minimumBidQuantity",
             v.CurrentHighestBid  AS "currentHighestBid",
@@ -238,9 +236,6 @@ async function placeBid(buyerId, payload) {
           `Your bid must be strictly higher.`
       );
     }
-    if (previousBid && previousBid.BUYERID === buyerId) {
-    }
-
     await connection.execute(
       `BEGIN pkg_krishi_rules.check_bid_min_qty(:batchId, :qty); END;`,
       { batchId, qty: requestedQuantity }
@@ -253,7 +248,7 @@ async function placeBid(buyerId, payload) {
 
     const inserted = await connection.execute(
       `INSERT INTO BID (BidID, BatchID, BuyerID, BidPricePerKg, RequestedQuantity, Status, PreviousBidID)
-       VALUES ((SELECT NVL(MAX(BidID), 0) + 1 FROM BID), :batchId, :buyerId, :price, :qty, 'ACTIVE', :previousBidId)
+       VALUES (seq_bid_id.NEXTVAL, :batchId, :buyerId, :price, :qty, 'ACTIVE', :previousBidId)
        RETURNING BidID INTO :bidId`,
       {
         batchId,
@@ -336,6 +331,7 @@ async function listStorageProposals(buyerId) {
             w.WarehouseName  AS "warehouseName",
             w.District       AS "warehouseDistrict",
             s.UnitNo         AS "unitNo",
+            su.LocationTag   AS "locationTag",
             s.QuantityStored AS "quantityStored",
             s.MinimumStorageDays AS "minimumStorageDays",
             s.StorageFeePerKgSnapshot AS "ratePerKg",
@@ -347,6 +343,7 @@ async function listStorageProposals(buyerId) {
             CASE WHEN s.AllocationStatus = 'COUNTERED' THEN 'COUNTER' ELSE 'PROPOSAL' END AS "awaiting"
        FROM STORES s
        JOIN WAREHOUSE w      ON w.WarehouseID = s.WarehouseID
+       JOIN STORAGE_UNIT su  ON su.WarehouseID = s.WarehouseID AND su.UnitNo = s.UnitNo
        JOIN HARVEST_BATCH hb ON hb.BatchID    = s.BatchID
        JOIN CROP c           ON c.CropID      = hb.CropID
       WHERE s.RequestedByBuyerID = :buyerId
@@ -396,6 +393,7 @@ async function listMyStorage(buyerId) {
             c.CropName         AS "cropName",
             w.WarehouseName    AS "warehouseName",
             s.UnitNo           AS "unitNo",
+            su.LocationTag     AS "locationTag",
             s.QuantityStored   AS "quantityStored",
             s.DateIn           AS "dateIn",
             s.DateOut          AS "dateOut",
@@ -410,6 +408,7 @@ async function listMyStorage(buyerId) {
             s.StorageFeePerKgSnapshot AS "ratePerKg"
        FROM STORES s
        JOIN WAREHOUSE w      ON w.WarehouseID = s.WarehouseID
+       JOIN STORAGE_UNIT su  ON su.WarehouseID = s.WarehouseID AND su.UnitNo = s.UnitNo
        JOIN HARVEST_BATCH hb ON hb.BatchID    = s.BatchID
        JOIN CROP c           ON c.CropID      = hb.CropID
       WHERE s.RequestedByBuyerID = :buyerId
@@ -423,38 +422,27 @@ async function listMyStorage(buyerId) {
 async function listOrders(buyerId) {
   await releaseAbandoned();
   const result = await query(
-    `SELECT so.SaleOrderID AS "saleOrderId",
-            so.OrderDate   AS "orderDate",
-            so.AcceptedQuantity   AS "acceptedQuantity",
-            so.AcceptedPricePerKg AS "acceptedPricePerKg",
-            so.TotalAmount AS "totalAmount",
-            so.Status      AS "status",
-            so.PaymentTerms AS "paymentTerms",
-            so.DeliveryPreference AS "deliveryPreference",
-            hb.BatchID     AS "batchId",
-            c.CropName     AS "cropName",
-            uf.FirstName || ' ' || uf.LastName AS "farmerName",
-            tr.DeliveryStatus AS "deliveryStatus",
-            tr.DeliveryDate   AS "deliveryDate",
-            tr.PickupLocation AS "pickupLocation",
-            tr.DeliveryLocation AS "deliveryLocation",
-            NVL((SELECT SUM(p.Amount) FROM PAYMENT p
-                  WHERE p.SaleOrderID = so.SaleOrderID
-                    AND p.PaymentStatus IN ('PENDING','COMPLETED')), 0) AS "amountPaid",
-            NVL((SELECT SUM(p.Amount) FROM PAYMENT p
-                  WHERE p.SaleOrderID = so.SaleOrderID
-                    AND p.PaymentMethod = 'SSLCOMMERZ'
-                    AND p.PaymentStatus = 'PENDING'), 0) AS "checkoutHeld",
-            (SELECT r.ReviewID FROM REVIEW r WHERE r.SaleOrderID = so.SaleOrderID) AS "reviewId"
-       FROM SALE_ORDER so
-       JOIN BID b            ON b.BidID    = so.BidID
-       JOIN HARVEST_BATCH hb ON hb.BatchID = b.BatchID
-       JOIN CROP c           ON c.CropID   = hb.CropID
-       JOIN FARM f           ON f.FarmID   = hb.FarmID
-       JOIN USERS uf         ON uf.UserID  = f.FarmerID
-       LEFT JOIN TRANSPORT_REQUEST tr ON tr.SaleOrderID = so.SaleOrderID
-      WHERE b.BuyerID = :buyerId
-      ORDER BY so.SaleOrderID DESC`,
+    `SELECT SaleOrderID       AS "saleOrderId",
+            OrderDate         AS "orderDate",
+            AcceptedQuantity  AS "acceptedQuantity",
+            AcceptedPricePerKg AS "acceptedPricePerKg",
+            TotalAmount       AS "totalAmount",
+            Status            AS "status",
+            PaymentTerms      AS "paymentTerms",
+            DeliveryPreference AS "deliveryPreference",
+            BatchID           AS "batchId",
+            CropName          AS "cropName",
+            FarmerName        AS "farmerName",
+            DeliveryStatus    AS "deliveryStatus",
+            DeliveryDate      AS "deliveryDate",
+            PickupLocation    AS "pickupLocation",
+            DeliveryLocation  AS "deliveryLocation",
+            AmountPaid        AS "amountPaid",
+            CheckoutHeld      AS "checkoutHeld",
+            ReviewID          AS "reviewId"
+       FROM V_ORDER_DETAILS
+      WHERE BuyerID = :buyerId
+      ORDER BY SaleOrderID DESC`,
     { buyerId }
   );
   return result.rows;
@@ -490,7 +478,7 @@ async function setDeliveryDirect(buyerId, saleOrderId) {
     const inFlight = await connection.execute(
       `SELECT COUNT(*) AS Cnt FROM STORES
         WHERE SaleOrderID = :saleOrderId
-          AND AllocationStatus IN ('PENDING_ACCEPT', 'COUNTERED', 'ACTIVE', 'PENDING_RELEASE')`,
+          AND AllocationStatus IN ('PENDING_ACCEPT','COUNTERED','IN_TRANSIT','ACTIVE','PENDING_RELEASE')`,
       { saleOrderId }
     );
     if (inFlight.rows[0].CNT > 0) {
@@ -574,7 +562,7 @@ async function payOrder(buyerId, saleOrderId, payload) {
     const inserted = await connection.execute(
       `INSERT INTO PAYMENT (PaymentID, SaleOrderID, BuyerID, FarmerID, Amount,
                             PaymentMethod, TransactionReference, PaymentStatus)
-       VALUES ((SELECT NVL(MAX(PaymentID), 0) + 1 FROM PAYMENT), :saleOrderId, :buyerId, :farmerId, :amount,
+       VALUES (seq_payment_id.NEXTVAL, :saleOrderId, :buyerId, :farmerId, :amount,
                :method, :reference, 'COMPLETED')
        RETURNING PaymentID INTO :paymentId`,
       {
@@ -667,7 +655,7 @@ async function createReview(buyerId, payload) {
     try {
       const inserted = await connection.execute(
         `INSERT INTO REVIEW (ReviewID, SaleOrderID, Rating, ReviewComment)
-         VALUES ((SELECT NVL(MAX(ReviewID), 0) + 1 FROM REVIEW), :saleOrderId, :rating, :reviewComment)
+         VALUES (seq_review_id.NEXTVAL, :saleOrderId, :rating, :reviewComment)
          RETURNING ReviewID INTO :reviewId`,
         {
           saleOrderId,

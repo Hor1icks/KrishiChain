@@ -2,6 +2,10 @@
 
 Everything needed to redraw the ER diagram. Work from this document, not from the old hand-drawn sheet — that one predates the AUCTION removal and has none of the graded constructs.
 
+> Historical drawing guide: this file records the Phase-1 design exercise.
+> For current column names and implemented rules, use `database/01_create_tables.sql`
+> and `KrishiChain_PRD_v3.md`; for Update-3 automation, use `UPDATE3.md`.
+
 **Notation key**
 
 | Symbol | Meaning |
@@ -30,7 +34,7 @@ Two composite attributes, one multivalued, one derived — draw all four properl
 | FARMER | `__FarmerID__`, NID, BankAccountNo, MobileBankingNo, ExperienceYears |
 | BUYER | `__BuyerID__`, BusinessName, BuyerType, TradeLicenseNo |
 | ADMIN | `__AdminID__`, EmployeeID, Designation |
-| STORAGE_MANAGER | `__ManagerID__`, EmployeeID |
+| STORAGE_MANAGER | `__ManagerID__`, Designation, ShiftSchedule |
 | TRANSPORT_PERSONNEL | `__PersonnelID__`, LicenseNo, ExperienceYears |
 
 ### 1.3 Production
@@ -38,8 +42,8 @@ Two composite attributes, one multivalued, one derived — draw all four properl
 |---|---|
 | CROP_CATEGORY | `__CategoryID__`, CategoryName, Description |
 | CROP | `__CropID__`, CropName, Unit, BasePrice, ShelfLifeDays, Description |
-| FARM | `__FarmID__`, FarmName, Area, SoilType, IrrigationType, Location, District, Status |
-| HARVEST_BATCH | `__BatchID__`, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, `/AvailableQuantity/`, QualityGrade, MoisturePercentage, **MinimumPrice, BiddingStartTime, BiddingEndTime**, Status, `/CurrentHighestBid/` |
+| FARM | `__FarmID__`, FarmName, Area, SoilType, IrrigationType, Location, District, Status, VerificationStatus, VerificationRequestedAt, VerificationReviewedAt |
+| HARVEST_BATCH | `__BatchID__`, HarvestDate, TotalQuantity, ReservedQuantity, SoldQuantity, `/AvailableQuantity/`, **MinimumPrice, BiddingStartTime, BiddingEndTime**, Status, `/CurrentHighestBid/` |
 
 Two derived attributes on HARVEST_BATCH. The three bidding attributes in bold are what absorbed the deleted AUCTION entity.
 
@@ -47,7 +51,7 @@ Two derived attributes on HARVEST_BATCH. The three bidding attributes in bold ar
 | Entity | Attributes |
 |---|---|
 | WAREHOUSE | `__WarehouseID__`, WarehouseName, Address, District, Capacity, `/AvailableCapacity/` |
-| **STORAGE_UNIT** *(weak)* | `(UnitNo)`, Capacity, Status, `/CurrentLoad/` |
+| **STORAGE_UNIT** *(weak)* | `(UnitNo)`, LocationTag, Capacity, Status, `/CurrentLoad/`, `/IncomingLoad/` |
 
 ### 1.5 Market
 | Entity | Attributes |
@@ -61,7 +65,7 @@ Two derived attributes on HARVEST_BATCH. The three bidding attributes in bold ar
 | Entity | Attributes |
 |---|---|
 | VEHICLE | `__VehicleID__`, VehicleNo, VehicleType, Capacity, Status |
-| TRANSPORT_REQUEST | `__TransportID__`, PickupLocation, DeliveryLocation, RequestDate, DeliveryDate, DeliveryStatus |
+| TRANSPORT_REQUEST | `__TransportID__`, RequestType, optional SaleOrderID/AllocationID, PickupLocation, DeliveryLocation, RequestDate, DeliveryDate, DeliveryStatus |
 
 ### 1.7 Price reference
 | Entity | Attributes |

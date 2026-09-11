@@ -99,6 +99,9 @@ async function listFarms(farmerId) {
             f.Location      AS "location",
             f.District      AS "district",
             f.Status        AS "status",
+            f.VerificationStatus AS "verificationStatus",
+            f.VerificationRequestedAt AS "verificationRequestedAt",
+            f.VerificationReviewedAt AS "verificationReviewedAt",
             (SELECT COUNT(*) FROM HARVEST_BATCH hb WHERE hb.FarmID = f.FarmID) AS "batchCount"
        FROM FARM f
       WHERE f.FarmerID = :farmerId
@@ -121,7 +124,7 @@ async function createFarm(farmerId, payload) {
   return withTransaction(async (connection) => {
     const result = await connection.execute(
       `INSERT INTO FARM (FarmID, FarmerID, FarmName, Area, SoilType, IrrigationType, Location, District)
-       VALUES ((SELECT NVL(MAX(FarmID), 0) + 1 FROM FARM), :farmerId, :farmName, :area, :soilType, :irrigationType, :location, :district)
+       VALUES (seq_farm_id.NEXTVAL, :farmerId, :farmName, :area, :soilType, :irrigationType, :location, :district)
        RETURNING FarmID INTO :farmId`,
       {
         farmerId,
@@ -149,7 +152,7 @@ async function listBatches(farmerId) {
             v.TotalQuantity     AS "totalQuantity",
             v.SoldQuantity      AS "soldQuantity",
             v.AvailableQuantity AS "availableQuantity",
-            v.QualityGrade      AS "qualityGrade",
+            v.FarmVerificationStatus AS "farmVerificationStatus",
             v.MinimumPrice      AS "minimumPrice",
             v.MinimumBidQuantity AS "minimumBidQuantity",
             v.CurrentHighestBid AS "currentHighestBid",
@@ -180,8 +183,7 @@ async function getBatch(farmerId, batchId) {
             v.ReservedQuantity   AS "reservedQuantity",
             v.SoldQuantity       AS "soldQuantity",
             v.AvailableQuantity  AS "availableQuantity",
-            v.QualityGrade       AS "qualityGrade",
-            v.MoisturePercentage AS "moisturePercentage",
+            v.FarmVerificationStatus AS "farmVerificationStatus",
             v.MinimumPrice       AS "minimumPrice",
             v.MinimumBidQuantity AS "minimumBidQuantity",
             v.BiddingStartTime   AS "biddingStartTime",
@@ -234,8 +236,19 @@ async function createBatch(farmerId, payload) {
 
   const start = payload.biddingStartTime ? new Date(payload.biddingStartTime) : null;
   const end = payload.biddingEndTime ? new Date(payload.biddingEndTime) : null;
+  if ((start && !end) || (!start && end)) {
+    throw ApiError.badRequest(
+      'Provide both bidding start and end times, or leave both empty to save a draft.'
+    );
+  }
+  if ((start && Number.isNaN(start.getTime())) || (end && Number.isNaN(end.getTime()))) {
+    throw ApiError.badRequest('Bidding start and end times must be valid dates.');
+  }
   if (start && end && end <= start) {
     throw ApiError.badRequest('Bidding end time must be after the start time.');
+  }
+  if (end && end <= new Date()) {
+    throw ApiError.badRequest('Bidding end time must be in the future.');
   }
 
   return withTransaction(async (connection) => {
@@ -257,15 +270,11 @@ async function createBatch(farmerId, payload) {
 
     const result = await connection.execute(
       `INSERT INTO HARVEST_BATCH (
-         BatchID,
-         FarmID, CropID, AratID, HarvestDate, TotalQuantity,
-         QualityGrade, MoisturePercentage, MinimumPrice,
-         BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity
+         BatchID, FarmID, CropID, AratID, HarvestDate, TotalQuantity,
+         MinimumPrice, BiddingStartTime, BiddingEndTime, Status, MinimumBidQuantity
        ) VALUES (
-         (SELECT NVL(MAX(BatchID), 0) + 1 FROM HARVEST_BATCH),
-         :farmId, :cropId, :aratId, :harvestDate, :totalQuantity,
-         :qualityGrade, :moisturePercentage, :minimumPrice,
-         :biddingStartTime, :biddingEndTime, :status, :minimumBidQuantity
+         seq_harvest_batch_id.NEXTVAL, :farmId, :cropId, :aratId, :harvestDate, :totalQuantity,
+         :minimumPrice, :biddingStartTime, :biddingEndTime, :status, :minimumBidQuantity
        )
        RETURNING BatchID INTO :batchId`,
       {
@@ -274,11 +283,6 @@ async function createBatch(farmerId, payload) {
         aratId: Number(payload.aratId),
         harvestDate: new Date(payload.harvestDate),
         totalQuantity,
-        qualityGrade: payload.qualityGrade || null,
-        moisturePercentage:
-          payload.moisturePercentage === '' || payload.moisturePercentage === undefined
-            ? null
-            : Number(payload.moisturePercentage),
         minimumPrice,
         biddingStartTime: start,
         biddingEndTime: end,
@@ -289,6 +293,58 @@ async function createBatch(farmerId, payload) {
     );
 
     return { batchId: result.outBinds.batchId[0] };
+  });
+}
+
+async function scheduleBatch(farmerId, batchId, payload) {
+  if (!payload.biddingStartTime || !payload.biddingEndTime) {
+    throw ApiError.badRequest('Both bidding start and end times are required.');
+  }
+
+  const start = new Date(payload.biddingStartTime);
+  const end = new Date(payload.biddingEndTime);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw ApiError.badRequest('Bidding start and end times must be valid dates.');
+  }
+  if (end <= start) {
+    throw ApiError.badRequest('Bidding end time must be after the start time.');
+  }
+  if (end <= new Date()) {
+    throw ApiError.badRequest('Bidding end time must be in the future.');
+  }
+
+  return withTransaction(async (connection) => {
+    const current = await connection.execute(
+      `SELECT hb.BatchID, hb.Status
+         FROM HARVEST_BATCH hb
+         JOIN FARM f ON f.FarmID = hb.FarmID
+        WHERE hb.BatchID = :batchId AND f.FarmerID = :farmerId
+        FOR UPDATE OF hb.Status`,
+      { batchId, farmerId }
+    );
+
+    if (!current.rows.length) throw ApiError.notFound('No such batch.');
+    if (current.rows[0].STATUS !== 'CREATED') {
+      throw ApiError.businessRule(
+        `Only a draft batch can be scheduled. This batch is ${current.rows[0].STATUS}.`
+      );
+    }
+
+    await connection.execute(
+      `UPDATE HARVEST_BATCH
+          SET BiddingStartTime = :startTime,
+              BiddingEndTime = :endTime,
+              Status = 'LISTED'
+        WHERE BatchID = :batchId`,
+      { startTime: start, endTime: end, batchId }
+    );
+
+    return {
+      batchId,
+      status: 'LISTED',
+      biddingStartTime: start,
+      biddingEndTime: end,
+    };
   });
 }
 
@@ -398,11 +454,7 @@ async function awardBid(farmerId, bidId, payload = {}) {
     await connection.execute(
       `UPDATE HARVEST_BATCH
           SET SoldQuantity = SoldQuantity + :qty,
-              Status = CASE
-                         WHEN TotalQuantity - ReservedQuantity - (SoldQuantity + :qty) <= 0
-                         THEN 'SOLD'
-                         ELSE Status
-                       END
+              Status = 'SOLD'
         WHERE BatchID = :batchId`,
       { qty: bid.REQUESTEDQUANTITY, batchId: bid.BATCHID }
     );
@@ -412,11 +464,11 @@ async function awardBid(farmerId, bidId, payload = {}) {
       { batchId: bid.BATCHID }
     );
     const stillAvailable = remaining.rows[0].AVAILABLEQUANTITY;
-    const batchFullySold = remaining.rows[0].STATUS === 'SOLD';
+    const batchFullySold = stillAvailable <= 0;
 
     const orderResult = await connection.execute(
       `INSERT INTO SALE_ORDER (SaleOrderID, BidID, AcceptedQuantity, AcceptedPricePerKg, PaymentTerms)
-       VALUES ((SELECT NVL(MAX(SaleOrderID), 0) + 1 FROM SALE_ORDER), :bidId, :qty, :price, :paymentTerms)
+       VALUES (seq_sale_order_id.NEXTVAL, :bidId, :qty, :price, :paymentTerms)
        RETURNING SaleOrderID INTO :saleOrderId`,
       {
         bidId,
@@ -440,7 +492,7 @@ async function awardBid(farmerId, bidId, payload = {}) {
 
     const transportResult = await connection.execute(
       `INSERT INTO TRANSPORT_REQUEST (TransportID, SaleOrderID, PickupLocation, DeliveryLocation)
-       VALUES ((SELECT NVL(MAX(TransportID), 0) + 1 FROM TRANSPORT_REQUEST), :saleOrderId, :pickup, :delivery)
+       VALUES (seq_transport_request_id.NEXTVAL, :saleOrderId, :pickup, :delivery)
        RETURNING TransportID INTO :transportId`,
       {
         saleOrderId,
@@ -476,6 +528,7 @@ async function listStorageProposals(farmerId) {
             c.CropName       AS "cropName",
             w.WarehouseName  AS "warehouseName",
             s.UnitNo         AS "unitNo",
+            su.LocationTag   AS "locationTag",
             s.QuantityStored AS "quantityStored",
             s.MinimumStorageDays AS "minimumStorageDays",
             s.StorageFeePerKgSnapshot AS "ratePerKg",
@@ -487,6 +540,7 @@ async function listStorageProposals(farmerId) {
             CASE WHEN s.AllocationStatus = 'COUNTERED' THEN 'COUNTER' ELSE 'PROPOSAL' END AS "awaiting"
        FROM STORES s
        JOIN WAREHOUSE w      ON w.WarehouseID = s.WarehouseID
+       JOIN STORAGE_UNIT su  ON su.WarehouseID = s.WarehouseID AND su.UnitNo = s.UnitNo
        JOIN HARVEST_BATCH hb ON hb.BatchID    = s.BatchID
        JOIN CROP c           ON c.CropID      = hb.CropID
       WHERE s.RequestedByFarmerID = :farmerId
@@ -535,6 +589,7 @@ async function listMyStorage(farmerId) {
             c.CropName         AS "cropName",
             w.WarehouseName    AS "warehouseName",
             s.UnitNo           AS "unitNo",
+            su.LocationTag     AS "locationTag",
             s.QuantityStored   AS "quantityStored",
             s.DateIn           AS "dateIn",
             s.DateOut          AS "dateOut",
@@ -545,6 +600,7 @@ async function listMyStorage(farmerId) {
             s.ReleaseRequestedBy AS "releaseRequestedBy"
        FROM STORES s
        JOIN WAREHOUSE w      ON w.WarehouseID = s.WarehouseID
+       JOIN STORAGE_UNIT su  ON su.WarehouseID = s.WarehouseID AND su.UnitNo = s.UnitNo
        JOIN HARVEST_BATCH hb ON hb.BatchID    = s.BatchID
        JOIN CROP c           ON c.CropID      = hb.CropID
       WHERE s.RequestedByFarmerID = :farmerId
@@ -557,32 +613,23 @@ async function listMyStorage(farmerId) {
 
 async function listOrders(farmerId) {
   const result = await query(
-    `SELECT so.SaleOrderID AS "saleOrderId",
-            so.OrderDate   AS "orderDate",
-            so.AcceptedQuantity   AS "acceptedQuantity",
-            so.AcceptedPricePerKg AS "acceptedPricePerKg",
-            so.TotalAmount AS "totalAmount",
-            so.Status      AS "status",
-            so.PaymentTerms AS "paymentTerms",
-            hb.BatchID     AS "batchId",
-            c.CropName     AS "cropName",
-            NVL(byr.BusinessName, ub.FirstName || ' ' || ub.LastName) AS "buyerName",
-            tr.TransportID AS "transportId",
-            tr.DeliveryStatus AS "deliveryStatus",
-            tr.DeliveryDate   AS "deliveryDate",
-            NVL((SELECT SUM(p.Amount) FROM PAYMENT p
-                  WHERE p.SaleOrderID = so.SaleOrderID
-                    AND p.PaymentStatus IN ('PENDING','COMPLETED')), 0) AS "amountReceived"
-       FROM SALE_ORDER so
-       JOIN BID b            ON b.BidID     = so.BidID
-       JOIN HARVEST_BATCH hb ON hb.BatchID  = b.BatchID
-       JOIN CROP c           ON c.CropID    = hb.CropID
-       JOIN FARM f           ON f.FarmID    = hb.FarmID
-       JOIN BUYER byr        ON byr.BuyerID = b.BuyerID
-       JOIN USERS ub         ON ub.UserID   = byr.BuyerID
-       LEFT JOIN TRANSPORT_REQUEST tr ON tr.SaleOrderID = so.SaleOrderID
-      WHERE f.FarmerID = :farmerId
-      ORDER BY so.SaleOrderID DESC`,
+    `SELECT SaleOrderID       AS "saleOrderId",
+            OrderDate         AS "orderDate",
+            AcceptedQuantity  AS "acceptedQuantity",
+            AcceptedPricePerKg AS "acceptedPricePerKg",
+            TotalAmount       AS "totalAmount",
+            Status            AS "status",
+            PaymentTerms      AS "paymentTerms",
+            BatchID           AS "batchId",
+            CropName          AS "cropName",
+            BuyerName         AS "buyerName",
+            TransportID       AS "transportId",
+            DeliveryStatus    AS "deliveryStatus",
+            DeliveryDate      AS "deliveryDate",
+            AmountPaid        AS "amountReceived"
+       FROM V_ORDER_DETAILS
+      WHERE FarmerID = :farmerId
+      ORDER BY SaleOrderID DESC`,
     { farmerId }
   );
   return result.rows;
@@ -646,6 +693,7 @@ module.exports = {
   listBatches,
   getBatch,
   createBatch,
+  scheduleBatch,
   listBidsForBatch,
   awardBid,
   listOrders,

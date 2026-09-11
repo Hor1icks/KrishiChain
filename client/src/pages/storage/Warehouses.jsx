@@ -11,6 +11,7 @@ export default function Warehouses() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({});
   const [unitForm, setUnitForm] = useState({});
+  const [locationDraft, setLocationDraft] = useState({});
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -46,21 +47,40 @@ export default function Warehouses() {
   }
 
   async function addUnit(warehouseId) {
-    const capacity = unitForm[warehouseId];
-    if (!capacity) return;
+    const values = unitForm[warehouseId] || {};
+    if (!values.capacity || !values.locationTag) return;
     setError('');
     setNotice('');
     setBusy(true);
     try {
       const res = await api(`/storage/warehouses/${warehouseId}/units`, {
         method: 'POST',
-        body: { capacity: Number(capacity) },
+        body: { capacity: Number(values.capacity), locationTag: values.locationTag },
       });
       setNotice(
         `Unit ${res.unitNo} created in warehouse ${res.warehouseId}. ` +
           `The number was assigned by pkg_krishi_rules.next_unit_no, not by you.`
       );
-      setUnitForm({ ...unitForm, [warehouseId]: '' });
+      setUnitForm({ ...unitForm, [warehouseId]: {} });
+      await load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveLocation(warehouseId, unit) {
+    const key = `${warehouseId}-${unit.unitNo}`;
+    const locationTag = (locationDraft[key] ?? unit.locationTag).trim();
+    if (!locationTag) return;
+    setError('');
+    setBusy(true);
+    try {
+      await api(`/storage/warehouses/${warehouseId}/units/${unit.unitNo}/location`, {
+        method: 'PATCH', body: { locationTag },
+      });
+      setNotice(`Unit ${unit.unitNo}'s exact location is now ${locationTag}.`);
       await load();
     } catch (e) {
       setError(e.message);
@@ -159,7 +179,8 @@ export default function Warehouses() {
                   <p className="muted">
                     {w.address ? `${w.address} · ` : ''}
                     {w.district} · {w.unitCount} units · {number(w.currentLoad)} /{' '}
-                    {number(w.unitCapacity)} kg used · {number(w.freeSpace)} kg free
+                    {number(w.unitCapacity)} kg physically stored · {number(w.incomingLoad)} kg incoming ·{' '}
+                    {number(w.freeSpace)} kg unreserved
                   </p>
                 </div>
               </div>
@@ -171,6 +192,7 @@ export default function Warehouses() {
                   <thead>
                     <tr>
                       <th className="num">Unit</th>
+                      <th>Specific location</th>
                       <th className="num">Capacity</th>
                       <th className="num">Load</th>
                       <th className="num">Free</th>
@@ -186,6 +208,19 @@ export default function Warehouses() {
                       <tr key={u.unitNo}>
                         <td className="num">
                           <strong>{u.unitNo}</strong>
+                        </td>
+                        <td>
+                          <div className="inline-form">
+                            <input
+                              value={locationDraft[`${w.warehouseId}-${u.unitNo}`] ?? u.locationTag}
+                              onChange={(e) => setLocationDraft({
+                                ...locationDraft,
+                                [`${w.warehouseId}-${u.unitNo}`]: e.target.value,
+                              })}
+                            />
+                            <button type="button" className="small ghost" disabled={busy}
+                              onClick={() => saveLocation(w.warehouseId, u)}>Save</button>
+                          </div>
                         </td>
                         <td className="num">{number(u.capacity)}</td>
                         <td className="num">{number(u.currentLoad)}</td>
@@ -232,17 +267,33 @@ export default function Warehouses() {
                     type="number"
                     step="0.001"
                     min="0.001"
-                    value={unitForm[w.warehouseId] || ''}
+                    value={unitForm[w.warehouseId]?.capacity || ''}
                     onChange={(e) =>
-                      setUnitForm({ ...unitForm, [w.warehouseId]: e.target.value })
+                      setUnitForm({
+                        ...unitForm,
+                        [w.warehouseId]: { ...unitForm[w.warehouseId], capacity: e.target.value },
+                      })
                     }
                     placeholder="e.g. 40000"
+                  />
+                </label>
+                <label>
+                  Specific location *
+                  <input
+                    value={unitForm[w.warehouseId]?.locationTag || ''}
+                    onChange={(e) =>
+                      setUnitForm({
+                        ...unitForm,
+                        [w.warehouseId]: { ...unitForm[w.warehouseId], locationTag: e.target.value },
+                      })
+                    }
+                    placeholder="e.g. Mirpur 10, Bay A"
                   />
                 </label>
                 <button
                   type="button"
                   className="small"
-                  disabled={busy || !unitForm[w.warehouseId]}
+                  disabled={busy || !unitForm[w.warehouseId]?.capacity || !unitForm[w.warehouseId]?.locationTag}
                   onClick={() => addUnit(w.warehouseId)}
                 >
                   Add unit

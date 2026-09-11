@@ -87,4 +87,26 @@ router.patch('/complaints/:complaintId', async (req, res, next) => {
   }
 });
 
+router.get('/farm-verifications', async (req, res, next) => {
+  try {
+    res.json(await admin.listFarmVerifications({ status: req.query.status }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.patch('/farm-verifications/:farmId', async (req, res, next) => {
+  try {
+    res.json(
+      await admin.reviewFarmVerification(
+        me(req),
+        param.id(req.params.farmId, 'farmId'),
+        req.body.decision
+      )
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

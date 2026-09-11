@@ -86,7 +86,7 @@ fi
 
 if [ "$REBUILD" -eq 1 ]; then
   say "Rebuilding the schema (this wipes all data)"
-  for f in 00_reset 01_create_tables 02_business_rules 03_insert_data \
+  for f in 00_reset 01_create_tables 01_schema_automation 02_trigger_layer 02_business_rules 03_insert_data \
            04_views 05_plsql_layer; do
     [ -f "$ROOT/database/$f.sql" ] || continue
     echo "  $f.sql"
@@ -96,6 +96,121 @@ if [ "$REBUILD" -eq 1 ]; then
       fail "$f.sql reported errors. Run it on its own with ./db.sh to see them all."
     fi
   done
+fi
+
+# Existing Docker volumes are not re-initialized when the image changes.
+# Apply versioned database objects so an older local volume can run the new
+# service queries without forcing a destructive --rebuild. Trigger migration
+# changes trigger objects only and never resets application data.
+if [ "$SKIP_DB" -eq 0 ] && [ "$REBUILD" -eq 0 ]; then
+  update4_column_count=$(
+    "$ROOT/db.sh" -q \
+      "SELECT 'U4COL=' || COUNT(*) FROM user_tab_columns WHERE table_name = 'STORAGE_UNIT' AND column_name = 'LOCATIONTAG'" \
+      2>/dev/null | sed -n 's/^U4COL=//p' | tail -1
+  )
+  update4_migrated=0
+  if [ "$update4_column_count" = "0" ]; then
+    say "Migrating the existing database to Update 4 (no rows are deleted)"
+    out=$("$ROOT/db.sh" "$ROOT/database/09_update4_migration.sql" 2>&1)
+    if grep -qE '^(ORA-|PLS-|SP2-)' <<<"$out"; then
+      echo "$out" | grep -E '^(ORA-|PLS-|SP2-)' | head -5
+      fail "Update-4 migration reported errors. Review the output before running it again."
+    fi
+    update4_migrated=1
+  fi
+
+  automation_count=$(
+    "$ROOT/db.sh" -q \
+      "SELECT 'U3AUTO=' || COUNT(*) FROM user_objects WHERE (object_type = 'SEQUENCE' AND object_name LIKE 'SEQ\_%\_ID' ESCAPE '\\') OR (object_type = 'INDEX' AND object_name LIKE 'IX\_%' ESCAPE '\\')" \
+      2>/dev/null | sed -n 's/^U3AUTO=//p' | tail -1
+  )
+
+  case "$automation_count" in
+    0)
+      say "Adding Update-3 sequences and indexes"
+      out=$("$ROOT/db.sh" "$ROOT/database/01_schema_automation.sql" 2>&1)
+      if grep -qE '^(ORA-|PLS-|SP2-)' <<<"$out"; then
+        echo "$out" | grep -E '^(ORA-|PLS-|SP2-)' | head -5
+        fail "Update-3 schema automation reported errors. No data was reset."
+      fi
+      ;;
+    47)
+      say "Adding Update-4 indexes"
+      out=$("$ROOT/db.sh" "$ROOT/database/09_update4_indexes.sql" 2>&1)
+      if grep -qE '^(ORA-|PLS-|SP2-)' <<<"$out"; then
+        echo "$out" | grep -E '^(ORA-|PLS-|SP2-)' | head -5
+        fail "Update-4 indexes reported errors."
+      fi
+      ;;
+    49) ;;
+    *)
+      fail "Schema automation is incomplete ($automation_count of 49 objects). Run ./start.sh --rebuild only if wiping local data is acceptable."
+      ;;
+  esac
+
+  trigger_layer_count=$(
+    "$ROOT/db.sh" -q \
+      "SELECT 'TRIGGERSET=' || COUNT(*) FROM user_objects WHERE object_type = 'TRIGGER' AND status = 'VALID' AND object_name IN ('TRG_USERS_PREPARE','TRG_BATCH_LISTING_GUARD','TRG_BID_GUARD','TRG_STORES_STATUS_GUARD','TRG_TRANSPORT_STATUS_GUARD','TRG_REVIEW_GUARD','TRG_BID_NOTIFICATION','TRG_TRANSPORT_NOTIFICATION','TRG_FARM_VERIFY_NOTIFICATION')" \
+      2>/dev/null | sed -n 's/^TRIGGERSET=//p' | tail -1
+  )
+  legacy_trigger_count=$(
+    "$ROOT/db.sh" -q \
+      "SELECT 'LEGACYTRIG=' || COUNT(*) FROM user_triggers WHERE trigger_name LIKE 'TRG\_%\_ID' ESCAPE '\\'" \
+      2>/dev/null | sed -n 's/^LEGACYTRIG=//p' | tail -1
+  )
+
+  if [ "$trigger_layer_count" != "9" ] || [ "$legacy_trigger_count" != "0" ]; then
+    say "Installing the 9-trigger business and notification layer"
+    out=$("$ROOT/db.sh" "$ROOT/database/02_trigger_layer.sql" 2>&1)
+    if grep -qE '^(ORA-|PLS-|SP2-)' <<<"$out"; then
+      echo "$out" | grep -E '^(ORA-|PLS-|SP2-)' | head -5
+      fail "Trigger-layer installation reported errors. Legacy triggers were left in place."
+    fi
+
+    trigger_layer_count=$(
+      "$ROOT/db.sh" -q \
+        "SELECT 'TRIGGERSET=' || COUNT(*) FROM user_objects WHERE object_type = 'TRIGGER' AND status = 'VALID' AND object_name IN ('TRG_USERS_PREPARE','TRG_BATCH_LISTING_GUARD','TRG_BID_GUARD','TRG_STORES_STATUS_GUARD','TRG_TRANSPORT_STATUS_GUARD','TRG_REVIEW_GUARD','TRG_BID_NOTIFICATION','TRG_TRANSPORT_NOTIFICATION','TRG_FARM_VERIFY_NOTIFICATION')" \
+        2>/dev/null | sed -n 's/^TRIGGERSET=//p' | tail -1
+    )
+    [ "$trigger_layer_count" = "9" ] ||
+      fail "Only $trigger_layer_count of 9 new triggers compiled successfully. Legacy triggers were left in place."
+
+    if [ "$legacy_trigger_count" != "0" ]; then
+      out=$("$ROOT/db.sh" "$ROOT/database/10_trigger_migration.sql" 2>&1)
+      if grep -qE '^(ORA-|PLS-|SP2-)' <<<"$out"; then
+        echo "$out" | grep -E '^(ORA-|PLS-|SP2-)' | head -5
+        fail "The old ID-trigger cleanup reported errors."
+      fi
+    fi
+  fi
+
+  update3_view_count=$(
+    "$ROOT/db.sh" -q \
+      "SELECT 'U3VIEWS=' || COUNT(*) FROM user_objects WHERE object_type = 'VIEW' AND status = 'VALID' AND object_name IN ('V_ORDER_DETAILS','V_STORAGE_DETAILS')" \
+      2>/dev/null | sed -n 's/^U3VIEWS=//p' | tail -1
+  )
+  if [ "$update3_view_count" != "2" ] || [ "$update4_migrated" -eq 1 ]; then
+    say "Refreshing database views"
+    out=$("$ROOT/db.sh" "$ROOT/database/04_views.sql" 2>&1)
+    if grep -qE '^(ORA-|PLS-|SP2-)' <<<"$out"; then
+      echo "$out" | grep -E '^(ORA-|PLS-|SP2-)' | head -5
+      fail "Update-3 views reported errors. No data was reset."
+    fi
+  fi
+
+  if [ "$update4_migrated" -eq 1 ]; then
+    say "Refreshing PL/SQL packages after Update 4"
+    out=$("$ROOT/db.sh" "$ROOT/database/02_business_rules.sql" 2>&1)
+    if grep -qE '^(ORA-|PLS-|SP2-)' <<<"$out"; then
+      echo "$out" | grep -E '^(ORA-|PLS-|SP2-)' | head -5
+      fail "Update-4 business-rule refresh reported errors."
+    fi
+    out=$("$ROOT/db.sh" "$ROOT/database/05_plsql_layer.sql" 2>&1)
+    if grep -qE '^(ORA-|PLS-|SP2-)' <<<"$out"; then
+      echo "$out" | grep -E '^(ORA-|PLS-|SP2-)' | head -5
+      fail "Update-4 PL/SQL refresh reported errors."
+    fi
+  fi
 fi
 
 for part in server client; do

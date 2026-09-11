@@ -41,18 +41,12 @@ JOIN   CROP c ON c.CropID = hb.CropID
 ORDER  BY hb.BatchID;
 
 PROMPT
-PROMPT A scalar subquery is also how every new row gets its key, since
-PROMPT 11g has no IDENTITY column. This is the shape used by all 15
-PROMPT inserts in the service layer:
-PROMPT
-PROMPT   INSERT INTO BID (BidID, ...)
-PROMPT   VALUES ((SELECT NVL(MAX(BidID), 0) + 1 FROM BID), ...)
-
-SELECT (SELECT NVL(MAX(BidID), 0) + 1 FROM BID) AS next_bid_id FROM dual;
+PROMPT Runtime primary keys now come from the Week-11 sequences and
+PROMPT BEFORE INSERT triggers demonstrated in 08_update3_demo.sql.
 
 PROMPT
 PROMPT ================ 3. VIEW ================
-PROMPT Six views. V_PENDING_DELIVERY joins seven tables so the admin
+PROMPT Eight views. V_PENDING_DELIVERY joins seven tables so the admin
 PROMPT dashboard can ask one simple question of it.
 
 SELECT SaleOrderID, CropName, DeliveryStatus, DriverName,
